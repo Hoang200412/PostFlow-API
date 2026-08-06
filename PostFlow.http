@@ -1,0 +1,91 @@
+@PostFlow_HostAddress = http://localhost:5042
+
+GET {{PostFlow_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+# Test Ping Endpoint
+GET {{PostFlow_HostAddress}}/api/upload/ping
+Accept: application/json
+
+###
+
+# Get all upload jobs
+GET {{PostFlow_HostAddress}}/api/upload/jobs
+Accept: application/json
+
+###
+
+# Upload video from local file path (YouTube example)
+POST {{PostFlow_HostAddress}}/api/upload/local-path
+Content-Type: application/json
+
+{
+  "videoFilePath": "C:\\path\\to\\your\\video.mp4",
+  "platform": 0,
+  "metadata": {
+    "title": "Video test upload YouTube",
+    "description": "Mô tả test upload qua PostFlow",
+    "tags": ["test", "api", "youtube"],
+    "privacyStatus": "public"
+  }
+}
+
+###
+
+# Upload video from local file path (TikTok example)
+POST {{PostFlow_HostAddress}}/api/upload/local-path
+Content-Type: application/json
+
+{
+  "videoFilePath": "C:\\path\\to\\your\\video.mp4",
+  "platform": 1,
+  "metadata": {
+    "title": "Video test upload TikTok",
+    "description": "Mô tả test upload qua PostFlow",
+    "tags": ["test", "tiktok"],
+    "privacyStatus": "public"
+  }
+}
+
+###
+
+# Upload video from local file path (Facebook Reels example)
+POST {{PostFlow_HostAddress}}/api/upload/local-path
+Content-Type: application/json
+
+{
+  "videoFilePath": "C:\\path\\to\\your\\video.mp4",
+  "platform": 2,
+  "metadata": {
+    "title": "Video test upload Facebook Reels",
+    "description": "Mô tả test upload qua PostFlow",
+    "tags": ["test", "facebook", "reels"],
+    "privacyStatus": "public"
+  }
+}
+
+###
+
+# Check job status (Replace JOB_ID_HERE with the ID returned by the upload endpoint)
+GET {{PostFlow_HostAddress}}/api/upload/jobs/JOB_ID_HERE
+Accept: application/json
+
+###
+
+# Seed Mock Data (Tạo User, Social Accounts và Video Asset giả lập để lấy các ID test)
+POST {{PostFlow_HostAddress}}/api/upload/seed
+Accept: application/json
+
+###
+
+# Enqueue Upload Job using foreign keys (Điền ID nhận được từ bước Seed ở trên vào đây)
+POST {{PostFlow_HostAddress}}/api/upload/enqueue
+Content-Type: application/json
+
+{
+  "userId": "YOUR_MOCK_USER_ID",
+  "videoAssetId": "YOUR_MOCK_VIDEO_ASSET_ID",
+  "socialAccountId": "YOUR_MOCK_SOCIAL_ACCOUNT_ID"
+}
