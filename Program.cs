@@ -7,6 +7,14 @@ using PostFlow.Services;
 using PostFlow.Services.Interfaces;
 using PostFlow.Services.Uploaders;
 using Serilog;
+using Scalar.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Microsoft.AspNetCore.Identity;
+using PostFlow.Models;
+using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.Authorization;
 
 // Cấu hình Logger tĩnh Serilog trước khi khởi tạo WebApplication Host
 Log.Logger = new LoggerConfiguration()
@@ -59,26 +67,96 @@ try
     builder.Services.AddTransient<VideoUploaderFactory>();
     builder.Services.AddScoped<IVideoUploadService, VideoUploadService>(); // Use Scoped service for DB integration
 
+    // Register Password Hasher & AuthService
+    builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+    builder.Services.AddScoped<IAuthService, AuthService>();
+
+    // Register JWT Authentication
+    var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+    var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
+
+    builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSettings["Issuer"],
+            ValidAudience = jwtSettings["Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
     // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-    builder.Services.AddOpenApi();
+    builder.Services.AddOpenApi(options =>
+    {
+        // 1. Định nghĩa chuẩn bảo mật Bearer (JWT) cho tài liệu OpenAPI
+        options.AddDocumentTransformer((document, context, cancellationToken) =>
+        {
+            document.Components ??= new OpenApiComponents();
+            document.Components.SecuritySchemes.Add("Bearer", new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                In = ParameterLocation.Header,
+                Description = "Nhập Token JWT của bạn để xác thực API."
+            });
+
+            return Task.CompletedTask;
+        });
+
+        // 2. Tự động áp dụng khóa bảo mật cho các API có thuộc tính [Authorize]
+        options.AddOperationTransformer((operation, context, cancellationToken) =>
+        {
+            var metadata = context.Description.ActionDescriptor.EndpointMetadata;
+            if (metadata.OfType<IAuthorizeData>().Any())
+            {
+                operation.Security ??= new List<OpenApiSecurityRequirement>();
+                operation.Security.Add(new OpenApiSecurityRequirement
+                {
+                    [new OpenApiSecurityScheme
+                    {
+                        Reference = new OpenApiReference
+                        {
+                            Id = "Bearer",
+                            Type = ReferenceType.SecurityScheme
+                        }
+                    }] = Array.Empty<string>()
+                });
+            }
+
+            return Task.CompletedTask;
+        });
+    });
 
     var app = builder.Build();
 
-    // Auto-create database & tables on startup (để chạy ngay lập tức không cần gõ lệnh Migration)
+    // Auto-create/migrate database & tables on startup using Migrations
     using (var scope = app.Services.CreateScope())
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        dbContext.Database.EnsureCreated();
+        dbContext.Database.Migrate(); // Apply any pending migrations
     }
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();
+        app.MapScalarApiReference(); // Route: /scalar/v1
     }
 
     app.UseHttpsRedirection();
 
+    app.UseAuthentication();
     app.UseAuthorization();
 
     // Kích hoạt Hangfire Dashboard (để quản lý / xem các tasks chạy ngầm tại endpoint /hangfire)

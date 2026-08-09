@@ -9,6 +9,9 @@ using Microsoft.EntityFrameworkCore;
 using PostFlow.Data;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
+using PostFlow.Models.DTOs;
+using PostFlow.Models.DTOs.Requests;
+using PostFlow.Models.DTOs.Responses;
 
 namespace PostFlow.Controllers
 {
@@ -101,36 +104,36 @@ namespace PostFlow.Controllers
         /// Lấy tất cả danh sách các Job upload
         /// </summary>
         [HttpGet("jobs")]
-        public async Task<ActionResult<IEnumerable<UploadJob>>> GetAllJobs()
+        public async Task<ActionResult<IEnumerable<UploadJobDto>>> GetAllJobs()
         {
             var jobs = await _uploadService.GetAllJobsAsync();
-            return Ok(jobs);
+            return Ok(jobs.ToDtoList());
         }
 
         /// <summary>
         /// Lấy trạng thái của một Job cụ thể
         /// </summary>
         [HttpGet("jobs/{jobId}")]
-        public async Task<ActionResult<UploadJob>> GetJobById(string jobId)
+        public async Task<ActionResult<UploadJobDto>> GetJobById(string jobId)
         {
             var job = await _uploadService.GetJobByIdAsync(jobId);
             if (job == null)
             {
                 return NotFound(new { message = $"Không tìm thấy Job với ID {jobId}" });
             }
-            return Ok(job);
+            return Ok(job.ToDto());
         }
 
         /// <summary>
         /// Đẩy một Job upload mới vào hàng đợi Hangfire dựa trên các ID khóa ngoại
         /// </summary>
         [HttpPost("enqueue")]
-        public async Task<ActionResult<UploadJob>> EnqueueJob([FromBody] EnqueueUploadRequest request)
+        public async Task<ActionResult<UploadJobDto>> EnqueueJob([FromBody] EnqueueUploadRequest request)
         {
             try
             {
                 var job = await _uploadService.EnqueueUploadJobAsync(request.UserId, request.VideoAssetId, request.SocialAccountId);
-                return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job);
+                return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
             }
             catch (ArgumentException ex)
             {
@@ -147,7 +150,7 @@ namespace PostFlow.Controllers
         /// API sẽ tự động tạo mock User/SocialAccount để chạy luồng mới
         /// </summary>
         [HttpPost("local-path")]
-        public async Task<ActionResult<UploadJob>> UploadFromLocalPath([FromBody] LocalPathUploadRequest request)
+        public async Task<ActionResult<UploadJobDto>> UploadFromLocalPath([FromBody] LocalPathUploadRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.VideoFilePath))
             {
@@ -161,7 +164,7 @@ namespace PostFlow.Controllers
                 request.Metadata ?? new VideoMetadata());
 
             var job = await _uploadService.EnqueueUploadJobAsync(userId, videoAssetId, socialAccountId);
-            return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job);
+            return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
         }
 
         /// <summary>
@@ -170,7 +173,7 @@ namespace PostFlow.Controllers
         /// </summary>
         [HttpPost("file")]
         [Consumes("multipart/form-data")]
-        public async Task<ActionResult<UploadJob>> UploadFile(
+        public async Task<ActionResult<UploadJobDto>> UploadFile(
             [FromForm] IFormFile file,
             [FromForm] PlatformType platform,
             [FromForm] string title,
@@ -206,7 +209,7 @@ namespace PostFlow.Controllers
             var (userId, socialAccountId, videoAssetId) = await GetOrCreateDefaultTestIds(platform, tempFilePath, metadata);
 
             var job = await _uploadService.EnqueueUploadJobAsync(userId, videoAssetId, socialAccountId);
-            return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job);
+            return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
         }
 
         // Hàm helper tương thích ngược giúp tự động sinh các thực thể test khi gọi API cũ
@@ -249,19 +252,5 @@ namespace PostFlow.Controllers
 
             return (user.Id, account.Id, video.Id);
         }
-    }
-
-    public class EnqueueUploadRequest
-    {
-        public string UserId { get; set; } = string.Empty;
-        public string VideoAssetId { get; set; } = string.Empty;
-        public string SocialAccountId { get; set; } = string.Empty;
-    }
-
-    public class LocalPathUploadRequest
-    {
-        public string VideoFilePath { get; set; } = string.Empty;
-        public PlatformType Platform { get; set; }
-        public VideoMetadata? Metadata { get; set; }
     }
 }
