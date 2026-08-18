@@ -67,6 +67,11 @@ try
     builder.Services.AddTransient<VideoUploaderFactory>();
     builder.Services.AddScoped<IVideoUploadService, VideoUploadService>(); // Use Scoped service for DB integration
 
+    // Register Storage and Video Generation Services
+    builder.Services.AddScoped<IStorageService, StorageService>();
+    builder.Services.AddScoped<IVideoGenerationService, VideoGenerationService>();
+    builder.Services.AddScoped<IBackgroundJobs, BackgroundJobs>();
+
     // Register Password Hasher & AuthService
     builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
     builder.Services.AddScoped<IAuthService, AuthService>();
@@ -163,6 +168,16 @@ try
     app.UseHangfireDashboard();
 
     app.MapControllers();
+
+    // Đăng ký Recurring background job cho việc thu thập Analytics (mỗi 6 tiếng)
+    using (var scope = app.Services.CreateScope())
+    {
+        var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+        recurringJobManager.AddOrUpdate<IBackgroundJobs>(
+            "gather-analytics-cron",
+            j => j.GatherAnalyticsJobAsync(),
+            "0 */6 * * *");
+    }
 
     app.Run();
 }

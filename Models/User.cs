@@ -20,5 +20,8 @@ namespace PostFlow.Models
         public virtual ICollection<SocialAccount> SocialAccounts { get; set; } = new List<SocialAccount>();
         public virtual ICollection<VideoAsset> VideoAssets { get; set; } = new List<VideoAsset>();
         public virtual ICollection<UploadJob> UploadJobs { get; set; } = new List<UploadJob>();
+        public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+        public virtual ICollection<ContentDNA> ContentDNAs { get; set; } = new List<ContentDNA>();
+        public virtual ICollection<ApiUsageLog> ApiUsageLogs { get; set; } = new List<ApiUsageLog>();
     }
 }

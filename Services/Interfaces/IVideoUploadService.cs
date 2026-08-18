@@ -9,7 +9,7 @@ namespace PostFlow.Services.Interfaces
         /// <summary>
         /// Tạo một Job upload mới và đưa vào hàng đợi xử lý nền.
         /// </summary>
-        Task<UploadJob> EnqueueUploadJobAsync(string userId, string videoAssetId, string socialAccountId);
+        Task<UploadJob> EnqueueUploadJobAsync(string userId, string videoAssetId, string socialAccountId, System.DateTime? scheduledAt = null, string? platformMetadataOverride = null);
 
         /// <summary>
         /// Lấy chi tiết Job theo ID.

@@ -22,6 +22,133 @@ namespace PostFlow.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PostFlow.Models.Analytics", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CapturedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Comments")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Likes")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Saves")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Shares")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UploadJobId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Views")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UploadJobId");
+
+                    b.ToTable("Analytics");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.ApiUsageLog", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("CallCount")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("CostEstimate")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ApiUsageLogs");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.ContentDNA", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AvatarAssetPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("BrandName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ScriptStructure")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("VoiceProfile")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ContentDNAs");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.RefreshToken", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens");
+                });
+
             modelBuilder.Entity("PostFlow.Models.SocialAccount", b =>
                 {
                     b.Property<string>("Id")
@@ -67,6 +194,24 @@ namespace PostFlow.Migrations
                     b.ToTable("SocialAccounts");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.SystemSetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("SystemSettings");
+                });
+
             modelBuilder.Entity("PostFlow.Models.UploadJob", b =>
                 {
                     b.Property<string>("Id")
@@ -78,15 +223,36 @@ namespace PostFlow.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ErrorDetails")
+                        .HasColumnType("text");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastAnalyticsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextRetryAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Platform")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("PlatformMetadataOverride")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PlatformPostId")
+                        .HasColumnType("text");
+
                     b.Property<int>("ProgressPercentage")
                         .HasColumnType("integer");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ScheduledAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SocialAccountId")
                         .IsRequired()
@@ -166,6 +332,9 @@ namespace PostFlow.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<string>("ContentDNAId")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -198,9 +367,55 @@ namespace PostFlow.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ContentDNAId");
+
                     b.HasIndex("UserId");
 
                     b.ToTable("VideoAssets");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.Analytics", b =>
+                {
+                    b.HasOne("PostFlow.Models.UploadJob", "UploadJob")
+                        .WithMany("Analytics")
+                        .HasForeignKey("UploadJobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("UploadJob");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.ApiUsageLog", b =>
+                {
+                    b.HasOne("PostFlow.Models.User", "User")
+                        .WithMany("ApiUsageLogs")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.ContentDNA", b =>
+                {
+                    b.HasOne("PostFlow.Models.User", "User")
+                        .WithMany("ContentDNAs")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.RefreshToken", b =>
+                {
+                    b.HasOne("PostFlow.Models.User", "User")
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("PostFlow.Models.SocialAccount", b =>
@@ -243,13 +458,25 @@ namespace PostFlow.Migrations
 
             modelBuilder.Entity("PostFlow.Models.VideoAsset", b =>
                 {
+                    b.HasOne("PostFlow.Models.ContentDNA", "ContentDNA")
+                        .WithMany("VideoAssets")
+                        .HasForeignKey("ContentDNAId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("PostFlow.Models.User", "User")
                         .WithMany("VideoAssets")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("ContentDNA");
+
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.ContentDNA", b =>
+                {
+                    b.Navigation("VideoAssets");
                 });
 
             modelBuilder.Entity("PostFlow.Models.SocialAccount", b =>
@@ -257,8 +484,19 @@ namespace PostFlow.Migrations
                     b.Navigation("UploadJobs");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.UploadJob", b =>
+                {
+                    b.Navigation("Analytics");
+                });
+
             modelBuilder.Entity("PostFlow.Models.User", b =>
                 {
+                    b.Navigation("ApiUsageLogs");
+
+                    b.Navigation("ContentDNAs");
+
+                    b.Navigation("RefreshTokens");
+
                     b.Navigation("SocialAccounts");
 
                     b.Navigation("UploadJobs");

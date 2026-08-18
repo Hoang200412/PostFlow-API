@@ -17,6 +17,14 @@ namespace PostFlow.Models
         public string? ErrorMessage { get; set; }
         public string? VideoUrl { get; set; }
         
+        public DateTime? ScheduledAt { get; set; }
+        public string? PlatformMetadataOverride { get; set; } // Store customized caption/tags as JSON
+        public string? PlatformPostId { get; set; }
+        public int RetryCount { get; set; } = 0;
+        public DateTime? NextRetryAt { get; set; }
+        public string? ErrorDetails { get; set; }
+        public DateTime? LastAnalyticsAt { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? CompletedAt { get; set; }
 
@@ -24,5 +32,6 @@ namespace PostFlow.Models
         public virtual User? User { get; set; }
         public virtual VideoAsset? VideoAsset { get; set; }
         public virtual SocialAccount? SocialAccount { get; set; }
+        public virtual ICollection<Analytics> Analytics { get; set; } = new List<Analytics>();
     }
 }

@@ -31,7 +31,7 @@ namespace PostFlow.Services
             _logger = logger;
         }
 
-        public async Task<UploadJob> EnqueueUploadJobAsync(string userId, string videoAssetId, string socialAccountId)
+        public async Task<UploadJob> EnqueueUploadJobAsync(string userId, string videoAssetId, string socialAccountId, DateTime? scheduledAt = null, string? platformMetadataOverride = null)
         {
             var socialAccount = await _context.SocialAccounts.FindAsync(socialAccountId);
             if (socialAccount == null)
@@ -47,6 +47,8 @@ namespace PostFlow.Services
                 Platform = socialAccount.Platform,
                 Status = UploadStatus.Pending,
                 ProgressPercentage = 0,
+                ScheduledAt = scheduledAt,
+                PlatformMetadataOverride = platformMetadataOverride,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -56,8 +58,18 @@ namespace PostFlow.Services
 
             _logger.LogInformation("Đã lưu Job vào Database. JobId: {JobId}, Platform: {Platform}", job.Id, job.Platform);
 
-            // Gửi job vào Hangfire để thực thi nền đáng tin cậy
-            _backgroundJobClient.Enqueue<IVideoUploadService>(s => s.ProcessUploadJobAsync(job.Id, CancellationToken.None));
+            // Gửi job vào Hangfire để thực thi nền
+            if (job.ScheduledAt.HasValue && job.ScheduledAt.Value > DateTime.UtcNow)
+            {
+                var delay = job.ScheduledAt.Value - DateTime.UtcNow;
+                _backgroundJobClient.Schedule<IVideoUploadService>(s => s.ProcessUploadJobAsync(job.Id, CancellationToken.None), delay);
+                _logger.LogInformation("Đã đặt lịch đăng cho Job: {JobId} chạy sau {Delay}", job.Id, delay);
+            }
+            else
+            {
+                _backgroundJobClient.Enqueue<IVideoUploadService>(s => s.ProcessUploadJobAsync(job.Id, CancellationToken.None));
+                _logger.LogInformation("Đã enqueue Job chạy ngay: {JobId}", job.Id);
+            }
 
             return job;
         }
@@ -81,7 +93,6 @@ namespace PostFlow.Services
 
         public async Task ProcessUploadJobAsync(string jobId, CancellationToken cancellationToken)
         {
-            // Vì Hangfire chạy trong Background Scope riêng, chúng ta sẽ tìm Job từ DbContext
             var job = await _context.UploadJobs
                 .Include(j => j.VideoAsset)
                 .Include(j => j.SocialAccount)
@@ -90,6 +101,12 @@ namespace PostFlow.Services
             if (job == null)
             {
                 _logger.LogError("Không tìm thấy Job trong Database để xử lý. JobId: {JobId}", jobId);
+                return;
+            }
+
+            if (job.Status == UploadStatus.Cancelled)
+            {
+                _logger.LogWarning("Job {JobId} đã bị hủy bởi người dùng, bỏ qua xử lý.", jobId);
                 return;
             }
 
@@ -112,7 +129,7 @@ namespace PostFlow.Services
                 // Lấy uploader từ Factory
                 var uploader = _uploaderFactory.GetUploader(job.Platform);
 
-                // Khởi tạo Progress reporter để cập nhật phần trăm tiến trình trực tiếp vào database
+                // Khởi tạo Progress reporter
                 var progressReporter = new Progress<int>(async percent =>
                 {
                     job.ProgressPercentage = percent;
@@ -127,12 +144,34 @@ namespace PostFlow.Services
                     _logger.LogDebug("Job {JobId} tiến trình: {Percent}%", jobId, percent);
                 });
 
-                // Chuyển đổi thông tin từ VideoAsset sang VideoMetadata cho uploader
+                // Chuyển đổi thông tin từ VideoAsset sang VideoMetadata cho uploader, áp dụng platform override nếu có
+                var title = job.VideoAsset.Title;
+                var description = job.VideoAsset.Description;
+                var tags = job.VideoAsset.Tags;
+
+                if (!string.IsNullOrEmpty(job.PlatformMetadataOverride))
+                {
+                    try
+                    {
+                        var overrideData = System.Text.Json.JsonSerializer.Deserialize<VideoMetadata>(job.PlatformMetadataOverride);
+                        if (overrideData != null)
+                        {
+                            if (!string.IsNullOrEmpty(overrideData.Title)) title = overrideData.Title;
+                            if (!string.IsNullOrEmpty(overrideData.Description)) description = overrideData.Description;
+                            if (overrideData.Tags != null && overrideData.Tags.Count > 0) tags = overrideData.Tags;
+                        }
+                    }
+                    catch (Exception jsonEx)
+                    {
+                        _logger.LogWarning("Lỗi parse PlatformMetadataOverride cho Job {JobId}: {Msg}", jobId, jsonEx.Message);
+                    }
+                }
+
                 var metadata = new VideoMetadata
                 {
-                    Title = job.VideoAsset.Title,
-                    Description = job.VideoAsset.Description,
-                    Tags = job.VideoAsset.Tags
+                    Title = title,
+                    Description = description,
+                    Tags = tags
                 };
 
                 // Thực hiện upload thực tế bằng file từ VideoAsset
@@ -146,25 +185,47 @@ namespace PostFlow.Services
                 {
                     job.Status = UploadStatus.Completed;
                     job.VideoUrl = result.VideoUrl;
+                    job.PlatformPostId = Guid.NewGuid().ToString().Substring(0, 8); // Giả lập platform_post_id
                     job.ProgressPercentage = 100;
                     _logger.LogInformation("Job {JobId} hoàn thành xuất sắc! URL: {Url}", jobId, result.VideoUrl);
                 }
                 else
                 {
-                    job.Status = UploadStatus.Failed;
-                    job.ErrorMessage = result.ErrorMessage;
-                    _logger.LogError("Job {JobId} thất bại. Lý do: {Error}", jobId, result.ErrorMessage);
+                    throw new Exception(result.ErrorMessage ?? "Uploader trả về trạng thái thất bại.");
                 }
             }
             catch (Exception ex)
             {
-                job.Status = UploadStatus.Failed;
-                job.ErrorMessage = $"Lỗi xử lý nền: {ex.Message}";
                 _logger.LogError(ex, "Lỗi xảy ra trong tiến trình nền Hangfire của Job: {JobId}", jobId);
+
+                if (job.RetryCount < 5)
+                {
+                    job.RetryCount++;
+                    double seconds = Math.Min(Math.Pow(2, job.RetryCount) * 5, 3600);
+                    job.NextRetryAt = DateTime.UtcNow.AddSeconds(seconds);
+                    job.Status = UploadStatus.Pending; // Trả về Pending để chạy lại
+                    job.ErrorMessage = $"Lỗi: {ex.Message}. Sẽ retry lần {job.RetryCount} sau {seconds} giây.";
+
+                    _backgroundJobClient.Schedule<IVideoUploadService>(
+                        s => s.ProcessUploadJobAsync(job.Id, CancellationToken.None), 
+                        TimeSpan.FromSeconds(seconds));
+
+                    _logger.LogInformation("Đã lên lịch retry lần {Count} cho Job {JobId} sau {Seconds}s", job.RetryCount, job.Id, seconds);
+                }
+                else
+                {
+                    job.Status = UploadStatus.DeadLetter;
+                    job.ErrorMessage = ex.Message;
+                    job.ErrorDetails = ex.ToString();
+                    _logger.LogError("Job {JobId} đã vượt quá số lần retry tối đa. Chuyển sang DEAD_LETTER.", job.Id);
+                }
             }
             finally
             {
-                job.CompletedAt = DateTime.UtcNow;
+                if (job.Status == UploadStatus.Completed || job.Status == UploadStatus.Failed || job.Status == UploadStatus.DeadLetter)
+                {
+                    job.CompletedAt = DateTime.UtcNow;
+                }
                 await _context.SaveChangesAsync(CancellationToken.None);
             }
         }

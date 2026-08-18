@@ -14,6 +14,11 @@ namespace PostFlow.Data
         public DbSet<SocialAccount> SocialAccounts { get; set; } = null!;
         public DbSet<VideoAsset> VideoAssets { get; set; } = null!;
         public DbSet<UploadJob> UploadJobs { get; set; } = null!;
+        public DbSet<ContentDNA> ContentDNAs { get; set; } = null!;
+        public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
+        public DbSet<ApiUsageLog> ApiUsageLogs { get; set; } = null!;
+        public DbSet<Analytics> Analytics { get; set; } = null!;
+        public DbSet<SystemSetting> SystemSettings { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -40,7 +45,19 @@ namespace PostFlow.Data
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
-            // 3. Cấu hình bảng VideoAsset
+            // 3. Cấu hình bảng ContentDNA
+            modelBuilder.Entity<ContentDNA>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Quan hệ User 1 - n ContentDNA
+                entity.HasOne(e => e.User)
+                    .WithMany(u => u.ContentDNAs)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // 4. Cấu hình bảng VideoAsset
             modelBuilder.Entity<VideoAsset>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -58,9 +75,15 @@ namespace PostFlow.Data
                     .WithMany(u => u.VideoAssets)
                     .HasForeignKey(e => e.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
+
+                // Quan hệ ContentDNA 1 - n VideoAsset
+                entity.HasOne(e => e.ContentDNA)
+                    .WithMany(c => c.VideoAssets)
+                    .HasForeignKey(e => e.ContentDNAId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
-            // 4. Cấu hình bảng UploadJob
+            // 5. Cấu hình bảng UploadJob
             modelBuilder.Entity<UploadJob>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -84,6 +107,48 @@ namespace PostFlow.Data
                     .WithMany(sa => sa.UploadJobs)
                     .HasForeignKey(e => e.SocialAccountId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // 6. Cấu hình bảng RefreshToken
+            modelBuilder.Entity<RefreshToken>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Quan hệ User 1 - n RefreshToken
+                entity.HasOne(e => e.User)
+                    .WithMany(u => u.RefreshTokens)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // 7. Cấu hình bảng ApiUsageLog
+            modelBuilder.Entity<ApiUsageLog>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Quan hệ User 1 - n ApiUsageLog
+                entity.HasOne(e => e.User)
+                    .WithMany(u => u.ApiUsageLogs)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // 8. Cấu hình bảng Analytics
+            modelBuilder.Entity<Analytics>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+
+                // Quan hệ UploadJob 1 - n Analytics
+                entity.HasOne(e => e.UploadJob)
+                    .WithMany(j => j.Analytics)
+                    .HasForeignKey(e => e.UploadJobId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // 9. Cấu hình bảng SystemSetting
+            modelBuilder.Entity<SystemSetting>(entity =>
+            {
+                entity.HasKey(e => e.Key);
             });
         }
     }

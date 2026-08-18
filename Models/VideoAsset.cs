@@ -20,11 +20,13 @@ namespace PostFlow.Models
         /// </summary>
         public string LocalFilePath { get; set; } = string.Empty;
         public int DurationSeconds { get; set; }
-        public string Status { get; set; } = "Ready"; // "Ready", "Rendering", "Failed"
+        public string Status { get; set; } = "Ready"; // "Pending", "Rendering", "Ready", "Failed", "Uploading"
+        public string? ContentDNAId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Navigation Properties cho Entity Framework Core
         public virtual User? User { get; set; }
+        public virtual ContentDNA? ContentDNA { get; set; }
         public virtual ICollection<UploadJob> UploadJobs { get; set; } = new List<UploadJob>();
     }
 }

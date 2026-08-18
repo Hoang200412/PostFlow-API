@@ -62,9 +62,14 @@ namespace PostFlow.Services
             var token = GenerateJwtToken(user);
             var refreshToken = GenerateRefreshToken();
 
-            // Lưu refresh token vào DB
-            user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7); // Hạn Refresh Token là 7 ngày
+            // Lưu refresh token vào bảng RefreshTokens
+            var rt = new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = ComputeHash(refreshToken),
+                ExpiresAt = DateTime.UtcNow.AddDays(7)
+            };
+            _context.RefreshTokens.Add(rt);
 
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
@@ -108,8 +113,13 @@ namespace PostFlow.Services
             var token = GenerateJwtToken(user);
             var refreshToken = GenerateRefreshToken();
 
-            user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            var rt = new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = ComputeHash(refreshToken),
+                ExpiresAt = DateTime.UtcNow.AddDays(7)
+            };
+            _context.RefreshTokens.Add(rt);
 
             await _context.SaveChangesAsync();
 
@@ -147,7 +157,11 @@ namespace PostFlow.Services
             }
 
             // 3. Kiểm tra tính hợp lệ của Refresh Token
-            if (user.RefreshToken != request.RefreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            var tokenHash = ComputeHash(request.RefreshToken);
+            var existingToken = await _context.RefreshTokens
+                .FirstOrDefaultAsync(t => t.UserId == userId && t.TokenHash == tokenHash);
+
+            if (existingToken == null || existingToken.ExpiresAt <= DateTime.UtcNow)
             {
                 throw new ArgumentException("Refresh Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.");
             }
@@ -156,8 +170,17 @@ namespace PostFlow.Services
             var newAccessToken = GenerateJwtToken(user);
             var newRefreshToken = GenerateRefreshToken();
 
-            user.RefreshToken = newRefreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7); // Gia hạn thêm 7 ngày
+            // Xóa token cũ
+            _context.RefreshTokens.Remove(existingToken);
+
+            // Thêm token mới
+            var rt = new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = ComputeHash(newRefreshToken),
+                ExpiresAt = DateTime.UtcNow.AddDays(7)
+            };
+            _context.RefreshTokens.Add(rt);
 
             await _context.SaveChangesAsync();
 
@@ -174,18 +197,36 @@ namespace PostFlow.Services
 
         public async Task<bool> RevokeTokenAsync(string userId)
         {
-            var user = await _context.Users.FindAsync(userId);
-            if (user == null)
+            var tokens = await _context.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
+            if (!tokens.Any())
             {
                 return false;
             }
 
-            // Xóa Refresh Token để đăng xuất
-            user.RefreshToken = null;
-            user.RefreshTokenExpiryTime = null;
-
+            _context.RefreshTokens.RemoveRange(tokens);
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<bool> LogoutAsync(string refreshToken)
+        {
+            var tokenHash = ComputeHash(refreshToken);
+            var token = await _context.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
+            if (token == null)
+            {
+                return false;
+            }
+
+            _context.RefreshTokens.Remove(token);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        private string ComputeHash(string input)
+        {
+            using var sha = SHA256.Create();
+            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+            return Convert.ToBase64String(bytes);
         }
 
         private string GenerateJwtToken(User user)

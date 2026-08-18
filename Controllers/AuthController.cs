@@ -143,6 +143,24 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
+        /// API Đăng xuất tài khoản (Xóa Refresh Token khỏi DB và Clear Cookie)
+        /// </summary>
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            var refreshToken = Request.Cookies["refreshToken"];
+            if (!string.IsNullOrEmpty(refreshToken))
+            {
+                await _authService.LogoutAsync(refreshToken);
+            }
+
+            // Xóa Cookie ở client
+            Response.Cookies.Delete("refreshToken");
+
+            return NoContent();
+        }
+
+        /// <summary>
         /// API Thu hồi Refresh Token (Đăng xuất / Thu hồi)
         /// </summary>
         [HttpPost("revoke/{userId}")]

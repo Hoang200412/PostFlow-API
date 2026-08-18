@@ -11,7 +11,10 @@ namespace PostFlow.Models
     {
         Pending,
         Processing,
-        Completed,
-        Failed
+        Completed, // Acts as POSTED
+        Failed,
+        Cancelled,
+        DeadLetter,
+        PostDeleted
     }
 }
