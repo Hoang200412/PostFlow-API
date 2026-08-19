@@ -25,32 +25,16 @@ namespace PostFlow.Controllers
         [HttpPost("register")]
         public async Task<ActionResult<AuthResponseDto>> Register([FromBody] RegisterRequest request)
         {
-            if (!ModelState.IsValid)
+            var response = await _authService.RegisterAsync(request);
+            if (response == null)
             {
-                return BadRequest(ModelState);
+                return BadRequest(new { message = "Không thể đăng ký tài khoản." });
             }
 
-            try
-            {
-                var response = await _authService.RegisterAsync(request);
-                if (response == null)
-                {
-                    return BadRequest(new { message = "Không thể đăng ký tài khoản." });
-                }
+            // Ghi đè Refresh Token vào HttpOnly Cookie
+            SetRefreshTokenCookie(response.RefreshToken);
 
-                // Ghi đè Refresh Token vào HttpOnly Cookie
-                SetRefreshTokenCookie(response.RefreshToken);
-
-                return Ok(response);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Lỗi máy chủ: {ex.Message}" });
-            }
+            return Ok(response);
         }
 
         /// <summary>
@@ -59,32 +43,16 @@ namespace PostFlow.Controllers
         [HttpPost("login")]
         public async Task<ActionResult<AuthResponseDto>> Login([FromBody] LoginRequest request)
         {
-            if (!ModelState.IsValid)
+            var response = await _authService.LoginAsync(request);
+            if (response == null)
             {
-                return BadRequest(ModelState);
+                return BadRequest(new { message = "Đăng nhập thất bại." });
             }
 
-            try
-            {
-                var response = await _authService.LoginAsync(request);
-                if (response == null)
-                {
-                    return BadRequest(new { message = "Đăng nhập thất bại." });
-                }
+            // Ghi đè Refresh Token vào HttpOnly Cookie
+            SetRefreshTokenCookie(response.RefreshToken);
 
-                // Ghi đè Refresh Token vào HttpOnly Cookie
-                SetRefreshTokenCookie(response.RefreshToken);
-
-                return Ok(response);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Lỗi máy chủ: {ex.Message}" });
-            }
+            return Ok(response);
         }
 
         /// <summary>
@@ -113,33 +81,22 @@ namespace PostFlow.Controllers
                 return BadRequest(new { message = "Không tìm thấy Access Token trong Header Authorization." });
             }
 
-            try
+            var requestDto = new TokenRequestDto
             {
-                var requestDto = new TokenRequestDto
-                {
-                    AccessToken = accessToken,
-                    RefreshToken = refreshToken
-                };
+                AccessToken = accessToken,
+                RefreshToken = refreshToken
+            };
 
-                var response = await _authService.RefreshTokenAsync(requestDto);
-                if (response == null)
-                {
-                    return BadRequest(new { message = "Làm mới token thất bại." });
-                }
-
-                // Xoay vòng cookie Refresh Token mới
-                SetRefreshTokenCookie(response.RefreshToken);
-
-                return Ok(response);
-            }
-            catch (ArgumentException ex)
+            var response = await _authService.RefreshTokenAsync(requestDto);
+            if (response == null)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { message = "Làm mới token thất bại." });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Lỗi máy chủ: {ex.Message}" });
-            }
+
+            // Xoay vòng cookie Refresh Token mới
+            SetRefreshTokenCookie(response.RefreshToken);
+
+            return Ok(response);
         }
 
         /// <summary>
@@ -166,23 +123,16 @@ namespace PostFlow.Controllers
         [HttpPost("revoke/{userId}")]
         public async Task<IActionResult> Revoke(string userId)
         {
-            try
+            var result = await _authService.RevokeTokenAsync(userId);
+            if (!result)
             {
-                var result = await _authService.RevokeTokenAsync(userId);
-                if (!result)
-                {
-                    return NotFound(new { message = $"Không tìm thấy người dùng với ID {userId} để thu hồi token." });
-                }
-
-                // Xóa Cookie ở client
-                Response.Cookies.Delete("refreshToken");
-
-                return Ok(new { message = "Đã thu hồi Refresh Token thành công (Đăng xuất)." });
+                return NotFound(new { message = $"Không tìm thấy người dùng với ID {userId} để thu hồi token." });
             }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Lỗi máy chủ: {ex.Message}" });
-            }
+
+            // Xóa Cookie ở client
+            Response.Cookies.Delete("refreshToken");
+
+            return Ok(new { message = "Đã thu hồi Refresh Token thành công (Đăng xuất)." });
         }
 
         // Helper cấu hình Cookie bảo mật

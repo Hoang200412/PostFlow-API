@@ -1,13 +1,9 @@
-using System;
-using System.IO;
-using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using PostFlow.Data;
-using PostFlow.Models;
+using PostFlow.Models.DTOs.Requests;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Controllers
@@ -17,113 +13,71 @@ namespace PostFlow.Controllers
     [Route("api/content-dna")]
     public class ContentDnaController : ControllerBase
     {
-        private readonly AppDbContext _context;
-        private readonly IStorageService _storageService;
+        private readonly IContentDnaService _contentDnaService;
 
-        public ContentDnaController(AppDbContext context, IStorageService storageService)
+        public ContentDnaController(IContentDnaService contentDnaService)
         {
-            _context = context;
-            _storageService = storageService;
+            _contentDnaService = contentDnaService;
         }
 
-        private string? GetCurrentUserId() => 
-            User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        private string? GetCurrentUserId() =>
+            User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
+        /// <summary>
+        /// API Lấy danh sách hồ sơ Content DNA thương hiệu của người dùng
+        /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetList()
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var list = await _context.ContentDNAs
-                .Where(c => c.UserId == userId)
-                .OrderByDescending(c => c.CreatedAt)
-                .ToListAsync();
-
+            var list = await _contentDnaService.GetListAsync(userId);
             return Ok(list);
         }
 
+        /// <summary>
+        /// API Tạo hồ sơ Content DNA thương hiệu mới
+        /// </summary>
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] ContentDnaCreateDto dto)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            if (string.IsNullOrWhiteSpace(dto.BrandName))
-            {
-                return UnprocessableEntity(new { message = "Brand name cannot be empty." });
-            }
-
-            var supportedVoices = new[] { "vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural", "en-US-JennyNeural", "en-US-GuyNeural" };
-            if (!supportedVoices.Contains(dto.VoiceProfile))
-            {
-                return BadRequest(new { message = "Giọng đọc không được hỗ trợ." });
-            }
-
-            var dna = new ContentDNA
-            {
-                UserId = userId,
-                BrandName = dto.BrandName,
-                VoiceProfile = dto.VoiceProfile,
-                AvatarAssetPath = dto.AvatarAssetPath ?? string.Empty,
-                ScriptStructure = dto.ScriptStructure ?? "Hook/Context/Mechanism/Twist"
-            };
-
-            _context.ContentDNAs.Add(dna);
-            await _context.SaveChangesAsync();
-
+            var dna = await _contentDnaService.CreateAsync(userId, dto);
             return Created($"/api/content-dna/{dna.Id}", dna);
         }
 
+        /// <summary>
+        /// API Cập nhật hồ sơ Content DNA thương hiệu theo ID
+        /// </summary>
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(string id, [FromBody] ContentDnaCreateDto dto)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var dna = await _context.ContentDNAs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-            if (dna == null) return NotFound();
-
-            if (string.IsNullOrWhiteSpace(dto.BrandName))
-            {
-                return UnprocessableEntity(new { message = "Brand name cannot be empty." });
-            }
-
-            var supportedVoices = new[] { "vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural", "en-US-JennyNeural", "en-US-GuyNeural" };
-            if (!supportedVoices.Contains(dto.VoiceProfile))
-            {
-                return BadRequest(new { message = "Giọng đọc không được hỗ trợ." });
-            }
-
-            dna.BrandName = dto.BrandName;
-            dna.VoiceProfile = dto.VoiceProfile;
-            dna.AvatarAssetPath = dto.AvatarAssetPath ?? dna.AvatarAssetPath;
-            dna.ScriptStructure = dto.ScriptStructure ?? dna.ScriptStructure;
-
-            await _context.SaveChangesAsync();
+            var dna = await _contentDnaService.UpdateAsync(userId, id, dto);
             return Ok(dna);
         }
 
+        /// <summary>
+        /// API Xóa hồ sơ Content DNA thương hiệu theo ID
+        /// </summary>
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var dna = await _context.ContentDNAs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
-            if (dna == null) return NotFound();
-
-            var isReferenced = await _context.VideoAssets.AnyAsync(v => v.ContentDNAId == id);
-            if (isReferenced)
-            {
-                return Conflict(new { message = "Không thể xóa Content DNA này vì đang có video liên kết sử dụng." });
-            }
-
-            _context.ContentDNAs.Remove(dna);
-            await _context.SaveChangesAsync();
+            await _contentDnaService.DeleteAsync(userId, id);
             return NoContent();
         }
 
+        /// <summary>
+        /// API Tải lên hình ảnh avatar cho hồ sơ thương hiệu (Hỗ trợ PNG/GIF)
+        /// </summary>
         [HttpPost("avatar")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadAvatar(IFormFile file)
@@ -131,30 +85,8 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            if (file == null || file.Length == 0)
-            {
-                return BadRequest(new { message = "Vui lòng chọn file avatar hợp lệ." });
-            }
-
-            var ext = Path.GetExtension(file.FileName).ToLower();
-            if (ext != ".png" && ext != ".gif")
-            {
-                return BadRequest(new { message = "Chỉ hỗ trợ định dạng PNG và GIF." });
-            }
-
-            var fileName = $"{Guid.NewGuid()}{ext}";
-            using var stream = file.OpenReadStream();
-            var relativePath = await _storageService.SaveFileAsync(stream, $"avatars/{userId}", fileName);
-
+            var relativePath = await _contentDnaService.UploadAvatarAsync(userId, file);
             return Ok(new { avatarPath = relativePath });
         }
-    }
-
-    public class ContentDnaCreateDto
-    {
-        public string BrandName { get; set; } = string.Empty;
-        public string VoiceProfile { get; set; } = string.Empty;
-        public string? AvatarAssetPath { get; set; }
-        public string? ScriptStructure { get; set; }
     }
 }

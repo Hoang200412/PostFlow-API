@@ -130,19 +130,8 @@ namespace PostFlow.Controllers
         [HttpPost("enqueue")]
         public async Task<ActionResult<UploadJobDto>> EnqueueJob([FromBody] EnqueueUploadRequest request)
         {
-            try
-            {
-                var job = await _uploadService.EnqueueUploadJobAsync(request.UserId, request.VideoAssetId, request.SocialAccountId);
-                return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Lỗi hệ thống: {ex.Message}" });
-            }
+            var job = await _uploadService.EnqueueUploadJobAsync(request.UserId, request.VideoAssetId, request.SocialAccountId);
+            return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
         }
 
         /// <summary>
