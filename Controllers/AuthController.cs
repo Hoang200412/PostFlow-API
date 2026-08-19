@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using PostFlow.Exceptions;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
@@ -28,7 +29,7 @@ namespace PostFlow.Controllers
             var response = await _authService.RegisterAsync(request);
             if (response == null)
             {
-                return BadRequest(new { message = "Không thể đăng ký tài khoản." });
+                throw new BadRequestException("Không thể đăng ký tài khoản.");
             }
 
             // Ghi đè Refresh Token vào HttpOnly Cookie
@@ -46,7 +47,7 @@ namespace PostFlow.Controllers
             var response = await _authService.LoginAsync(request);
             if (response == null)
             {
-                return BadRequest(new { message = "Đăng nhập thất bại." });
+                throw new BadRequestException("Đăng nhập thất bại.");
             }
 
             // Ghi đè Refresh Token vào HttpOnly Cookie
@@ -65,7 +66,7 @@ namespace PostFlow.Controllers
             var refreshToken = Request.Cookies["refreshToken"];
             if (string.IsNullOrEmpty(refreshToken))
             {
-                return BadRequest(new { message = "Không tìm thấy Refresh Token trong Cookie. Vui lòng đăng nhập lại." });
+                throw new BadRequestException("Không tìm thấy Refresh Token trong Cookie. Vui lòng đăng nhập lại.");
             }
 
             // 2. Đọc Access Token cũ từ Header Authorization (Bearer <token>)
@@ -78,7 +79,7 @@ namespace PostFlow.Controllers
 
             if (string.IsNullOrEmpty(accessToken))
             {
-                return BadRequest(new { message = "Không tìm thấy Access Token trong Header Authorization." });
+                throw new BadRequestException("Không tìm thấy Access Token trong Header Authorization.");
             }
 
             var requestDto = new TokenRequestDto
@@ -90,7 +91,7 @@ namespace PostFlow.Controllers
             var response = await _authService.RefreshTokenAsync(requestDto);
             if (response == null)
             {
-                return BadRequest(new { message = "Làm mới token thất bại." });
+                throw new BadRequestException("Làm mới token thất bại.");
             }
 
             // Xoay vòng cookie Refresh Token mới
@@ -126,7 +127,7 @@ namespace PostFlow.Controllers
             var result = await _authService.RevokeTokenAsync(userId);
             if (!result)
             {
-                return NotFound(new { message = $"Không tìm thấy người dùng với ID {userId} để thu hồi token." });
+                throw new NotFoundException($"Không tìm thấy người dùng với ID {userId} để thu hồi token.");
             }
 
             // Xóa Cookie ở client

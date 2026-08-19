@@ -9,6 +9,7 @@ using PostFlow.Data;
 using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
+using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Services
@@ -24,15 +25,17 @@ namespace PostFlow.Services
             _storageService = storageService;
         }
 
-        public async Task<IEnumerable<ContentDNA>> GetListAsync(string userId)
+        public async Task<IEnumerable<ContentDnaDto>> GetListAsync(string userId)
         {
-            return await _context.ContentDNAs
+            var list = await _context.ContentDNAs
                 .Where(c => c.UserId == userId)
                 .OrderByDescending(c => c.CreatedAt)
                 .ToListAsync();
+
+            return list.Select(c => c.ToDto());
         }
 
-        public async Task<ContentDNA> CreateAsync(string userId, ContentDnaCreateDto dto)
+        public async Task<ContentDnaDto> CreateAsync(string userId, ContentDnaCreateDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.BrandName))
             {
@@ -57,10 +60,10 @@ namespace PostFlow.Services
             _context.ContentDNAs.Add(dna);
             await _context.SaveChangesAsync();
 
-            return dna;
+            return dna.ToDto();
         }
 
-        public async Task<ContentDNA> UpdateAsync(string userId, string id, ContentDnaCreateDto dto)
+        public async Task<ContentDnaDto> UpdateAsync(string userId, string id, ContentDnaCreateDto dto)
         {
             var dna = await _context.ContentDNAs.FirstOrDefaultAsync(c => c.Id == id && c.UserId == userId);
             if (dna == null)
@@ -85,7 +88,7 @@ namespace PostFlow.Services
             dna.ScriptStructure = dto.ScriptStructure ?? dna.ScriptStructure;
 
             await _context.SaveChangesAsync();
-            return dna;
+            return dna.ToDto();
         }
 
         public async Task DeleteAsync(string userId, string id)

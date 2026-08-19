@@ -7,6 +7,7 @@ using PostFlow.Data;
 using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
+using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Services
@@ -20,15 +21,17 @@ namespace PostFlow.Services
             _context = context;
         }
 
-        public async Task<IEnumerable<SocialAccount>> GetListAsync(string userId)
+        public async Task<IEnumerable<SocialAccountDto>> GetListAsync(string userId)
         {
-            return await _context.SocialAccounts
+            var list = await _context.SocialAccounts
                 .Where(sa => sa.UserId == userId)
                 .OrderBy(sa => sa.Platform)
                 .ToListAsync();
+
+            return list.Select(sa => sa.ToDto());
         }
 
-        public async Task<SocialAccount> ConnectAsync(string userId, ConnectChannelRequest request)
+        public async Task<SocialAccountDto> ConnectAsync(string userId, ConnectChannelRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.AccountName) || string.IsNullOrWhiteSpace(request.ChannelIdOrPageId))
             {
@@ -58,7 +61,7 @@ namespace PostFlow.Services
             _context.SocialAccounts.Add(channel);
             await _context.SaveChangesAsync();
 
-            return channel;
+            return channel.ToDto();
         }
 
         public async Task DisconnectAsync(string userId, string id)

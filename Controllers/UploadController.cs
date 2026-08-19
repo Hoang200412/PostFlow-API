@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PostFlow.Data;
+using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 using PostFlow.Models.DTOs;
@@ -119,7 +120,7 @@ namespace PostFlow.Controllers
             var job = await _uploadService.GetJobByIdAsync(jobId);
             if (job == null)
             {
-                return NotFound(new { message = $"Không tìm thấy Job với ID {jobId}" });
+                throw new NotFoundException($"Không tìm thấy Job với ID {jobId}");
             }
             return Ok(job.ToDto());
         }
@@ -143,7 +144,7 @@ namespace PostFlow.Controllers
         {
             if (string.IsNullOrWhiteSpace(request.VideoFilePath))
             {
-                return BadRequest(new { message = "Đường dẫn file video không được để trống." });
+                throw new BadRequestException("Đường dẫn file video không được để trống.");
             }
 
             // Đảm bảo có mock data trong DB để làm việc
@@ -171,7 +172,7 @@ namespace PostFlow.Controllers
         {
             if (file == null || file.Length == 0)
             {
-                return BadRequest(new { message = "Vui lòng chọn file video hợp lệ." });
+                throw new BadRequestException("Vui lòng chọn file video hợp lệ.");
             }
 
             var tempDir = Path.Combine(Directory.GetCurrentDirectory(), "temp_uploads");

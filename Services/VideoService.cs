@@ -7,6 +7,7 @@ using PostFlow.Data;
 using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
+using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Services
@@ -41,14 +42,14 @@ namespace PostFlow.Services
 
             return new
             {
-                items,
+                items = items.Select(v => v.ToDto()),
                 total,
                 page,
                 limit
             };
         }
 
-        public async Task<VideoAsset> GetByIdAsync(string userId, string id)
+        public async Task<VideoAssetDto> GetByIdAsync(string userId, string id)
         {
             var video = await _context.VideoAssets
                 .FirstOrDefaultAsync(v => v.Id == id && v.UserId == userId);
@@ -58,7 +59,7 @@ namespace PostFlow.Services
                 throw new NotFoundException($"Không tìm thấy video với ID {id}");
             }
 
-            return video;
+            return video.ToDto();
         }
 
         public async Task DeleteAsync(string userId, string id)
