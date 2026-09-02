@@ -1,7 +1,11 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using PostFlow.Data;
+using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
@@ -17,6 +21,26 @@ namespace PostFlow.Controllers
         public AuthController(IAuthService authService)
         {
             _authService = authService;
+        }
+
+        [HttpGet("debug-users")]
+        public async Task<IActionResult> DebugUsers([FromServices] AppDbContext context, [FromServices] Microsoft.AspNetCore.Identity.IPasswordHasher<User> passwordHasher)
+        {
+            var users = await context.Users.ToListAsync();
+            var debugInfo = users.Select(u => {
+                var testVerify = !string.IsNullOrEmpty(u.PasswordHash) 
+                    ? passwordHasher.VerifyHashedPassword(u, u.PasswordHash, "Password123!").ToString()
+                    : "NoHash";
+                return new {
+                    u.Id,
+                    u.Username,
+                    u.Email,
+                    u.Role,
+                    HasPassword = !string.IsNullOrEmpty(u.PasswordHash),
+                    TestVerifyPassword123 = testVerify
+                };
+            }).ToList();
+            return Ok(debugInfo);
         }
 
         /// <summary>

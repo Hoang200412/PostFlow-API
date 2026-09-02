@@ -38,6 +38,18 @@ try
 
     builder.Services.AddControllers();
 
+    // Register CORS policy
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowAll", policy =>
+        {
+            policy.WithOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:3000")
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+        });
+    });
+
     // Bind Connection String from appsettings.json
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
@@ -150,6 +162,10 @@ try
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         dbContext.Database.Migrate(); // Apply any pending migrations
+        
+        // Seed mock data if DB is empty
+        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
+        PostFlow.Data.DbSeeder.Seed(dbContext, passwordHasher);
     }
 
     // Configure the HTTP request pipeline.
@@ -158,8 +174,12 @@ try
         app.MapOpenApi();
         app.MapScalarApiReference(); // Route: /scalar/v1
     }
+    else
+    {
+        app.UseHttpsRedirection();
+    }
 
-    app.UseHttpsRedirection();
+    app.UseCors("AllowAll");
 
     app.UseAuthentication();
     app.UseAuthorization();
