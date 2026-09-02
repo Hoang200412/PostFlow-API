@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PostFlow.Data;
+using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 using PostFlow.Models.DTOs;
@@ -119,7 +120,7 @@ namespace PostFlow.Controllers
             var job = await _uploadService.GetJobByIdAsync(jobId);
             if (job == null)
             {
-                return NotFound(new { message = $"Không tìm thấy Job với ID {jobId}" });
+                throw new NotFoundException($"Không tìm thấy Job với ID {jobId}");
             }
             return Ok(job.ToDto());
         }
@@ -130,19 +131,8 @@ namespace PostFlow.Controllers
         [HttpPost("enqueue")]
         public async Task<ActionResult<UploadJobDto>> EnqueueJob([FromBody] EnqueueUploadRequest request)
         {
-            try
-            {
-                var job = await _uploadService.EnqueueUploadJobAsync(request.UserId, request.VideoAssetId, request.SocialAccountId);
-                return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = $"Lỗi hệ thống: {ex.Message}" });
-            }
+            var job = await _uploadService.EnqueueUploadJobAsync(request.UserId, request.VideoAssetId, request.SocialAccountId);
+            return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
         }
 
         /// <summary>
@@ -154,7 +144,7 @@ namespace PostFlow.Controllers
         {
             if (string.IsNullOrWhiteSpace(request.VideoFilePath))
             {
-                return BadRequest(new { message = "Đường dẫn file video không được để trống." });
+                throw new BadRequestException("Đường dẫn file video không được để trống.");
             }
 
             // Đảm bảo có mock data trong DB để làm việc
@@ -182,7 +172,7 @@ namespace PostFlow.Controllers
         {
             if (file == null || file.Length == 0)
             {
-                return BadRequest(new { message = "Vui lòng chọn file video hợp lệ." });
+                throw new BadRequestException("Vui lòng chọn file video hợp lệ.");
             }
 
             var tempDir = Path.Combine(Directory.GetCurrentDirectory(), "temp_uploads");

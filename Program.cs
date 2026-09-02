@@ -87,6 +87,14 @@ try
     // Register Password Hasher & AuthService
     builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
     builder.Services.AddScoped<IAuthService, AuthService>();
+    builder.Services.AddScoped<IAdminService, AdminService>();
+    builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
+    builder.Services.AddScoped<IAssetService, AssetService>();
+    builder.Services.AddScoped<IChannelService, ChannelService>();
+    builder.Services.AddScoped<IContentDnaService, ContentDnaService>();
+    builder.Services.AddScoped<IPostingJobService, PostingJobService>();
+    builder.Services.AddScoped<IVideoService, VideoService>();
+    builder.Services.AddScoped<IWebhookService, WebhookService>();
 
     // Register JWT Authentication
     var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -156,6 +164,9 @@ try
     });
 
     var app = builder.Build();
+
+    // Kích hoạt Global Exception Handling Middleware làm điểm xử lý lỗi tập trung
+    app.UseMiddleware<PostFlow.Middleware.GlobalExceptionMiddleware>();
 
     // Auto-create/migrate database & tables on startup using Migrations
     using (var scope = app.Services.CreateScope())
