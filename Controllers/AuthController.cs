@@ -1,15 +1,8 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-<<<<<<< HEAD
 using Microsoft.EntityFrameworkCore;
 using PostFlow.Data;
 using PostFlow.Models;
-=======
 using PostFlow.Exceptions;
->>>>>>> bf885f7d1cb6db74c4fe1ab3ef5b0542ee1b88ed
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
@@ -17,7 +10,7 @@ using PostFlow.Services.Interfaces;
 namespace PostFlow.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/auth")]
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;

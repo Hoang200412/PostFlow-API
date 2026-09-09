@@ -12,6 +12,7 @@ namespace PostFlow.Services.Interfaces
         Task<UploadResult> UploadAsync(
             string videoFilePath, 
             VideoMetadata metadata, 
+            SocialAccount? account = null,
             IProgress<int>? progress = null, 
             CancellationToken cancellationToken = default);
     }

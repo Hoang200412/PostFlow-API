@@ -17,7 +17,7 @@ using PostFlow.Models.DTOs.Responses;
 namespace PostFlow.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/upload")]
     public class UploadController : ControllerBase
     {
         private readonly IVideoUploadService _uploadService;
@@ -163,14 +163,9 @@ namespace PostFlow.Controllers
         /// </summary>
         [HttpPost("file")]
         [Consumes("multipart/form-data")]
-        public async Task<ActionResult<UploadJobDto>> UploadFile(
-            [FromForm] IFormFile file,
-            [FromForm] PlatformType platform,
-            [FromForm] string title,
-            [FromForm] string description,
-            [FromForm] string privacyStatus = "public")
+        public async Task<ActionResult<UploadJobDto>> UploadFile([FromForm] FileUploadRequest request)
         {
-            if (file == null || file.Length == 0)
+            if (request.File == null || request.File.Length == 0)
             {
                 throw new BadRequestException("Vui lòng chọn file video hợp lệ.");
             }
@@ -181,22 +176,22 @@ namespace PostFlow.Controllers
                 Directory.CreateDirectory(tempDir);
             }
 
-            var tempFileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+            var tempFileName = $"{Guid.NewGuid()}{Path.GetExtension(request.File.FileName)}";
             var tempFilePath = Path.Combine(tempDir, tempFileName);
 
             using (var stream = new FileStream(tempFilePath, FileMode.Create))
             {
-                await file.CopyToAsync(stream);
+                await request.File.CopyToAsync(stream);
             }
 
             var metadata = new VideoMetadata
             {
-                Title = string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(file.FileName) : title,
-                Description = description,
-                PrivacyStatus = privacyStatus
+                Title = string.IsNullOrWhiteSpace(request.Title) ? Path.GetFileNameWithoutExtension(request.File.FileName) : request.Title,
+                Description = request.Description ?? string.Empty,
+                PrivacyStatus = request.PrivacyStatus ?? "public"
             };
 
-            var (userId, socialAccountId, videoAssetId) = await GetOrCreateDefaultTestIds(platform, tempFilePath, metadata);
+            var (userId, socialAccountId, videoAssetId) = await GetOrCreateDefaultTestIds(request.Platform, tempFilePath, metadata);
 
             var job = await _uploadService.EnqueueUploadJobAsync(userId, videoAssetId, socialAccountId);
             return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());

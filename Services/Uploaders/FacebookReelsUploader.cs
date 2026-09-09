@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -13,11 +16,16 @@ namespace PostFlow.Services.Uploaders
     public class FacebookReelsUploader : IVideoUploader
     {
         private readonly FacebookReelsSettings _settings;
+        private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<FacebookReelsUploader> _logger;
 
-        public FacebookReelsUploader(IOptions<PlatformSettings> settings, ILogger<FacebookReelsUploader> logger)
+        public FacebookReelsUploader(
+            IOptions<PlatformSettings> settings, 
+            IHttpClientFactory httpClientFactory,
+            ILogger<FacebookReelsUploader> logger)
         {
             _settings = settings.Value.FacebookReels;
+            _httpClientFactory = httpClientFactory;
             _logger = logger;
         }
 
@@ -26,6 +34,7 @@ namespace PostFlow.Services.Uploaders
         public async Task<UploadResult> UploadAsync(
             string videoFilePath, 
             VideoMetadata metadata, 
+            SocialAccount? account = null,
             IProgress<int>? progress = null, 
             CancellationToken cancellationToken = default)
         {
@@ -39,62 +48,111 @@ namespace PostFlow.Services.Uploaders
 
             try
             {
-                /* 
-                 * HƯỚNG DẪN TÍCH HỢP FACEBOOK REELS (META GRAPH API) THỰC TẾ:
-                 * Meta sử dụng quy trình upload Reels qua 3 bước (Start -> Upload -> Finish):
-                 * 
-                 * Bước 1: Khởi tạo phiên upload (Initialize Session)
-                 *   POST tới endpoint: `https://graph.facebook.com/v19.0/{page_id}/video_reels`
-                 *   Query Parameters/Body:
-                 *     - upload_phase = "start"
-                 *     - access_token = _settings.PageAccessToken
-                 *   Kết quả trả về:
-                 *     - video_id: ID của video reel trên Facebook.
-                 *     - upload_url: URL dùng để đẩy file video lên.
-                 * 
-                 * Bước 2: Upload file video nhị phân (Upload Video)
-                 *   Khởi tạo HTTP client và thực hiện gửi request POST tới `upload_url` nhận được từ Bước 1.
-                 *   Headers cần có:
-                 *     - Authorization: OAuth _settings.PageAccessToken
-                 *     - offset: 0
-                 *     - file_size: kích thước file video (bytes)
-                 *   Body gửi kèm file nhị phân (hoặc form-data chứa file).
-                 *   Tại đây cập nhật progress bằng cách theo dõi số byte đã gửi của HTTP request stream.
-                 *   progress?.Report((int)(sentBytes * 100 / totalBytes));
-                 * 
-                 * Bước 3: Hoàn tất và xuất bản Reels (Finish & Publish)
-                 *   POST tới endpoint: `https://graph.facebook.com/v19.0/{page_id}/video_reels`
-                 *   Query Parameters/Body:
-                 *     - upload_phase = "finish"
-                 *     - video_id = video_id (nhận được ở bước 1)
-                 *     - video_state = "PUBLISHED"
-                 *     - description = metadata.Description // Tiêu đề/mô tả hiển thị trên Reels
-                 *     - access_token = _settings.PageAccessToken
-                 *   Facebook sẽ tiến hành xử lý ngầm (processing) video và xuất bản công khai.
-                 */
+                var pageId = !string.IsNullOrWhiteSpace(account?.ChannelIdOrPageId)
+                    ? account.ChannelIdOrPageId
+                    : _settings.PageId;
 
-                // Giả lập tiến trình upload
-                for (int i = 0; i <= 100; i += 30)
+                var pageAccessToken = !string.IsNullOrWhiteSpace(account?.AccessToken)
+                    ? account.AccessToken
+                    : _settings.PageAccessToken;
+
+                bool hasValidCredentials = !string.IsNullOrWhiteSpace(pageId) &&
+                                           !pageId.StartsWith("YOUR_") &&
+                                           !string.IsNullOrWhiteSpace(pageAccessToken) &&
+                                           !pageAccessToken.StartsWith("YOUR_");
+
+                if (hasValidCredentials)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    // Giới hạn max progress ở bước upload là 90%, 10% còn lại cho bước finish
-                    int currentProgress = Math.Min(i, 90);
-                    progress?.Report(currentProgress);
-                    _logger.LogInformation("Facebook Reels Uploading: {Percent}%", currentProgress);
-                    await Task.Delay(300, cancellationToken); // Giả lập mạng chậm
+                    _logger.LogInformation("Đang sử dụng Meta Graph API để upload Facebook Reels thực tế...");
+
+                    var client = _httpClientFactory.CreateClient();
+                    var fileInfo = new FileInfo(videoFilePath);
+                    long totalBytes = fileInfo.Length;
+
+                    // Bước 1: Khởi tạo phiên upload (Initialize Session)
+                    string startUrl = $"https://graph.facebook.com/v19.0/{pageId}/video_reels?upload_phase=start&access_token={pageAccessToken}";
+                    var startResponse = await client.PostAsync(startUrl, null, cancellationToken);
+                    var startResponseBody = await startResponse.Content.ReadAsStringAsync(cancellationToken);
+
+                    if (!startResponse.IsSuccessStatusCode)
+                    {
+                        _logger.LogError("Facebook Reels phase=start thất bại: {Response}", startResponseBody);
+                        throw new Exception($"Facebook Reels Start Error: {startResponseBody}");
+                    }
+
+                    using var startJsonDoc = JsonDocument.Parse(startResponseBody);
+                    string videoId = startJsonDoc.RootElement.GetProperty("video_id").GetString()!;
+                    string uploadUrl = startJsonDoc.RootElement.GetProperty("upload_url").GetString()!;
+
+                    _logger.LogInformation("Đã khởi tạo Facebook Reels session: VideoId: {VideoId}", videoId);
+                    progress?.Report(10);
+
+                    // Bước 2: Upload file video nhị phân (Upload Video)
+                    using (var fileStream = new FileStream(videoFilePath, FileMode.Open, FileAccess.Read))
+                    {
+                        using var streamContent = new StreamContent(fileStream);
+                        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                        using var uploadHttpRequest = new HttpRequestMessage(HttpMethod.Post, uploadUrl)
+                        {
+                            Content = streamContent
+                        };
+                        uploadHttpRequest.Headers.Add("Authorization", $"OAuth {pageAccessToken}");
+                        uploadHttpRequest.Headers.Add("offset", "0");
+                        uploadHttpRequest.Headers.Add("file_size", totalBytes.ToString());
+
+                        var uploadResponse = await client.SendAsync(uploadHttpRequest, cancellationToken);
+                        if (!uploadResponse.IsSuccessStatusCode)
+                        {
+                            var uploadErr = await uploadResponse.Content.ReadAsStringAsync(cancellationToken);
+                            throw new Exception($"Facebook Reels Upload Phase Error: {uploadErr}");
+                        }
+                    }
+
+                    progress?.Report(90);
+                    _logger.LogInformation("Đã đẩy file video lên Meta CDN thành công. Tiến hành xuất bản Reels...");
+
+                    // Bước 3: Hoàn tất và xuất bản Reels (Finish & Publish)
+                    string desc = Uri.EscapeDataString(metadata.Description ?? metadata.Title ?? "Video ngắn từ PostFlow");
+                    string finishUrl = $"https://graph.facebook.com/v19.0/{pageId}/video_reels?upload_phase=finish&video_id={videoId}&video_state=PUBLISHED&description={desc}&access_token={pageAccessToken}";
+
+                    var finishResponse = await client.PostAsync(finishUrl, null, cancellationToken);
+                    var finishResponseBody = await finishResponse.Content.ReadAsStringAsync(cancellationToken);
+
+                    if (!finishResponse.IsSuccessStatusCode)
+                    {
+                        _logger.LogError("Facebook Reels phase=finish thất bại: {Response}", finishResponseBody);
+                        throw new Exception($"Facebook Reels Finish Error: {finishResponseBody}");
+                    }
+
+                    progress?.Report(100);
+                    string facebookVideoUrl = $"https://www.facebook.com/watch/reel/{videoId}";
+                    _logger.LogInformation("Upload Facebook Reels thành công! Video ID: {VideoId}, URL: {Url}", videoId, facebookVideoUrl);
+
+                    return UploadResult.Success(videoId, facebookVideoUrl);
                 }
+                else
+                {
+                    _logger.LogWarning("Chưa cấu hình Facebook Page ID / Page Access Token. Đang chạy chế độ Giả lập (Mock Mode)...");
 
-                // Giả lập bước Finish & Publish
-                _logger.LogInformation("Đang hoàn tất (Finishing) phiên upload trên Facebook Reels...");
-                await Task.Delay(500, cancellationToken);
-                progress?.Report(100);
+                    for (int i = 0; i <= 100; i += 30)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        int currentProgress = Math.Min(i, 90);
+                        progress?.Report(currentProgress);
+                        _logger.LogInformation("Facebook Reels Mock Uploading: {Percent}%", currentProgress);
+                        await Task.Delay(300, cancellationToken);
+                    }
 
-                string dummyFacebookVideoId = "fb_reel_" + Guid.NewGuid().ToString("N").Substring(0, 15);
-                string videoUrl = $"https://www.facebook.com/watch/reel/{dummyFacebookVideoId}";
+                    await Task.Delay(500, cancellationToken);
+                    progress?.Report(100);
 
-                _logger.LogInformation("Upload Facebook Reels thành công! Video ID: {VideoId}", dummyFacebookVideoId);
+                    string dummyFacebookVideoId = "fb_reel_" + Guid.NewGuid().ToString("N").Substring(0, 15);
+                    string videoUrl = $"https://www.facebook.com/watch/reel/{dummyFacebookVideoId}";
+                    _logger.LogInformation("Upload Facebook Reels thành công (Mock)! Video ID: {VideoId}", dummyFacebookVideoId);
 
-                return UploadResult.Success(dummyFacebookVideoId, videoUrl);
+                    return UploadResult.Success(dummyFacebookVideoId, videoUrl);
+                }
             }
             catch (OperationCanceledException)
             {

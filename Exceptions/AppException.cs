@@ -7,14 +7,12 @@ namespace PostFlow.Exceptions
     {
         public HttpStatusCode StatusCode { get; }
 
-        public AppException(string message, HttpStatusCode statusCode = HttpStatusCode.InternalServerError) 
-            : base(message)
+        public AppException(string message, HttpStatusCode statusCode = HttpStatusCode.InternalServerError) : base(message)
         {
             StatusCode = statusCode;
         }
 
-        public AppException(string message, Exception innerException, HttpStatusCode statusCode = HttpStatusCode.InternalServerError) 
-            : base(message, innerException)
+        public AppException(string message, Exception innerException, HttpStatusCode statusCode = HttpStatusCode.InternalServerError) : base(message, innerException)
         {
             StatusCode = statusCode;
         }

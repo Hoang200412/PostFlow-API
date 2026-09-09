@@ -1,13 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Text.Json;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using PostFlow.Exceptions;
 
 namespace PostFlow.Middleware
+
 {
     public class GlobalExceptionMiddleware
     {

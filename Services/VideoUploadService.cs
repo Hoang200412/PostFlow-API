@@ -174,10 +174,11 @@ namespace PostFlow.Services
                     Tags = tags
                 };
 
-                // Thực hiện upload thực tế bằng file từ VideoAsset
+                // Thực hiện upload thực tế bằng file từ VideoAsset và account của job
                 var result = await uploader.UploadAsync(
                     job.VideoAsset.LocalFilePath, 
                     metadata, 
+                    job.SocialAccount,
                     progressReporter, 
                     cancellationToken);
 
@@ -185,7 +186,7 @@ namespace PostFlow.Services
                 {
                     job.Status = UploadStatus.Completed;
                     job.VideoUrl = result.VideoUrl;
-                    job.PlatformPostId = Guid.NewGuid().ToString().Substring(0, 8); // Giả lập platform_post_id
+                    job.PlatformPostId = result.VideoId ?? Guid.NewGuid().ToString().Substring(0, 8);
                     job.ProgressPercentage = 100;
                     _logger.LogInformation("Job {JobId} hoàn thành xuất sắc! URL: {Url}", jobId, result.VideoUrl);
                 }
