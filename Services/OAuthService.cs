@@ -36,6 +36,48 @@ namespace PostFlow.Services
             _logger = logger;
         }
 
+        public string GenerateState(string userId, string returnUrl)
+        {
+            var payload = new
+            {
+                UserId = userId,
+                ReturnUrl = returnUrl,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            };
+            var json = JsonSerializer.Serialize(payload);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        }
+
+        public (string UserId, string ReturnUrl) DecodeState(string state)
+        {
+            if (string.IsNullOrWhiteSpace(state))
+            {
+                throw new BadRequestException("State không hợp lệ hoặc bị thiếu.");
+            }
+
+            try
+            {
+                string incoming = state.Replace('-', '+').Replace('_', '/');
+                switch (incoming.Length % 4)
+                {
+                    case 2: incoming += "=="; break;
+                    case 3: incoming += "="; break;
+                }
+                var bytes = Convert.FromBase64String(incoming);
+                var json = Encoding.UTF8.GetString(bytes);
+                using var doc = JsonDocument.Parse(json);
+                var userId = doc.RootElement.GetProperty("UserId").GetString() ?? "";
+                var returnUrl = doc.RootElement.TryGetProperty("ReturnUrl", out var rElem) ? rElem.GetString() ?? "" : "";
+                return (userId, returnUrl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Không thể giải mã OAuth state: {Msg}. Fallback sử dụng chuỗi state thô làm UserId.", ex.Message);
+                return (state, "");
+            }
+        }
+
         public string GetAuthorizationUrl(PlatformType platform, string redirectUri, string state)
         {
             var encodedRedirect = Uri.EscapeDataString(redirectUri);

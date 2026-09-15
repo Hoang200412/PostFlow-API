@@ -7,6 +7,8 @@ namespace PostFlow.Services.Interfaces
     public interface IOAuthService
     {
         string GetAuthorizationUrl(PlatformType platform, string redirectUri, string state);
+        string GenerateState(string userId, string returnUrl);
+        (string UserId, string ReturnUrl) DecodeState(string state);
         Task<SocialAccountDto> HandleCallbackAsync(string userId, PlatformType platform, string code, string redirectUri);
     }
 }
