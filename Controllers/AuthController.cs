@@ -1,7 +1,9 @@
+using System;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using PostFlow.Data;
-using PostFlow.Models;
 using PostFlow.Exceptions;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
@@ -18,26 +20,6 @@ namespace PostFlow.Controllers
         public AuthController(IAuthService authService)
         {
             _authService = authService;
-        }
-
-        [HttpGet("debug-users")]
-        public async Task<IActionResult> DebugUsers([FromServices] AppDbContext context, [FromServices] Microsoft.AspNetCore.Identity.IPasswordHasher<User> passwordHasher)
-        {
-            var users = await context.Users.ToListAsync();
-            var debugInfo = users.Select(u => {
-                var testVerify = !string.IsNullOrEmpty(u.PasswordHash) 
-                    ? passwordHasher.VerifyHashedPassword(u, u.PasswordHash, "Password123!").ToString()
-                    : "NoHash";
-                return new {
-                    u.Id,
-                    u.Username,
-                    u.Email,
-                    u.Role,
-                    HasPassword = !string.IsNullOrEmpty(u.PasswordHash),
-                    TestVerifyPassword123 = testVerify
-                };
-            }).ToList();
-            return Ok(debugInfo);
         }
 
         /// <summary>
@@ -86,7 +68,7 @@ namespace PostFlow.Controllers
             var refreshToken = Request.Cookies["refreshToken"];
             if (string.IsNullOrEmpty(refreshToken))
             {
-                throw new BadRequestException("Không tìm thấy Refresh Token trong Cookie. Vui lòng đăng nhập lại.");
+                throw new UnauthorizedException("Không tìm thấy Refresh Token trong Cookie. Vui lòng đăng nhập lại.");
             }
 
             // 2. Đọc Access Token cũ từ Header Authorization (Bearer <token>)
@@ -99,7 +81,7 @@ namespace PostFlow.Controllers
 
             if (string.IsNullOrEmpty(accessToken))
             {
-                throw new BadRequestException("Không tìm thấy Access Token trong Header Authorization.");
+                throw new UnauthorizedException("Không tìm thấy Access Token trong Header Authorization.");
             }
 
             var requestDto = new TokenRequestDto
@@ -139,8 +121,9 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
-        /// API Thu hồi Refresh Token (Đăng xuất / Thu hồi)
+        /// API Thu hồi Refresh Token theo UserId
         /// </summary>
+        [Authorize]
         [HttpPost("revoke/{userId}")]
         public async Task<IActionResult> Revoke(string userId)
         {
@@ -153,7 +136,7 @@ namespace PostFlow.Controllers
             // Xóa Cookie ở client
             Response.Cookies.Delete("refreshToken");
 
-            return Ok(new { message = "Đã thu hồi Refresh Token thành công (Đăng xuất)." });
+            return Ok(new { message = "Đã thu hồi Refresh Token thành công." });
         }
 
         // Helper cấu hình Cookie bảo mật
@@ -161,10 +144,10 @@ namespace PostFlow.Controllers
         {
             var cookieOptions = new CookieOptions
             {
-                HttpOnly = true, // Ngăn mã JavaScript đọc/truy cập (Chống XSS)
-                Secure = true,   // Chỉ gửi qua HTTPS
+                HttpOnly = true,             // Ngăn JavaScript truy cập (Chống XSS)
+                Secure = true,               // Chỉ gửi qua HTTPS
                 SameSite = SameSiteMode.Lax, // Chống CSRF
-                Expires = DateTime.UtcNow.AddDays(7) // Hạn sử dụng của Cookie trùng với Refresh Token
+                Expires = DateTime.UtcNow.AddDays(7) // Hạn sử dụng cookie đồng bộ với Refresh Token
             };
             Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
         }

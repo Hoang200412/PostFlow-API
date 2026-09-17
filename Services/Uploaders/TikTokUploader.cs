@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -6,9 +7,11 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PostFlow.Configuration;
+using PostFlow.Data;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 
@@ -19,18 +22,80 @@ namespace PostFlow.Services.Uploaders
         private readonly TikTokSettings _settings;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<TikTokUploader> _logger;
+        private readonly AppDbContext _context;
 
         public TikTokUploader(
             IOptions<PlatformSettings> settings, 
             IHttpClientFactory httpClientFactory,
-            ILogger<TikTokUploader> logger)
+            ILogger<TikTokUploader> logger,
+            AppDbContext context)
         {
             _settings = settings.Value.TikTok;
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _context = context;
         }
 
         public PlatformType Platform => PlatformType.TikTok;
+
+        /// <summary>
+        /// Refresh TikTok AccessToken bằng RefreshToken và lưu token mới vào DB.
+        /// TikTok AccessToken hết hạn sau 24h, RefreshToken hết hạn sau 365 ngày.
+        /// </summary>
+        private async Task<string?> RefreshAccessTokenAsync(SocialAccount account, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(account.RefreshToken))
+            {
+                _logger.LogWarning("TikTok RefreshToken trống, không thể làm mới AccessToken.");
+                return null;
+            }
+
+            try
+            {
+                var client = _httpClientFactory.CreateClient();
+                var tokenParams = new Dictionary<string, string>
+                {
+                    { "client_key", _settings.ClientKey },
+                    { "client_secret", _settings.ClientSecret },
+                    { "grant_type", "refresh_token" },
+                    { "refresh_token", account.RefreshToken }
+                };
+
+                var response = await client.PostAsync(
+                    "https://open.tiktokapis.com/v2/oauth/token/",
+                    new FormUrlEncodedContent(tokenParams),
+                    cancellationToken);
+
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("TikTok token refresh thất bại: {Body}", body);
+                    return null;
+                }
+
+                using var doc = JsonDocument.Parse(body);
+                var data = doc.RootElement.GetProperty("data");
+                var newAccessToken = data.GetProperty("access_token").GetString() ?? "";
+                var newRefreshToken = data.TryGetProperty("refresh_token", out var rt) ? rt.GetString() ?? "" : "";
+                var expiresIn = data.TryGetProperty("expires_in", out var exp) ? exp.GetInt32() : 86400;
+
+                // Lưu token mới vào DB
+                account.AccessToken = newAccessToken;
+                if (!string.IsNullOrEmpty(newRefreshToken))
+                    account.RefreshToken = newRefreshToken;
+                account.TokenExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn);
+                await _context.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation("Đã làm mới TikTok AccessToken thành công cho account {Id}.", account.Id);
+                return newAccessToken;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi refresh TikTok token.");
+                return null;
+            }
+        }
 
         public async Task<UploadResult> UploadAsync(
             string videoFilePath, 
@@ -52,6 +117,15 @@ namespace PostFlow.Services.Uploaders
                 var accessToken = !string.IsNullOrWhiteSpace(account?.AccessToken) 
                     ? account.AccessToken 
                     : _settings.AccessToken;
+
+                // Kiểm tra token sắp hết hạn (buffer 5 phút) → refresh trước khi upload
+                if (account != null && account.TokenExpiresAt.HasValue 
+                    && account.TokenExpiresAt.Value <= DateTime.UtcNow.AddMinutes(5))
+                {
+                    _logger.LogInformation("TikTok AccessToken sắp hết hạn, đang làm mới...");
+                    var refreshed = await RefreshAccessTokenAsync(account, cancellationToken);
+                    if (refreshed != null) accessToken = refreshed;
+                }
 
                 bool hasValidCredentials = !string.IsNullOrWhiteSpace(accessToken) && 
                                            !accessToken.StartsWith("YOUR_");
@@ -94,6 +168,24 @@ namespace PostFlow.Services.Uploaders
 
                     var initResponse = await client.SendAsync(initHttpRequest, cancellationToken);
                     var initResponseBody = await initResponse.Content.ReadAsStringAsync(cancellationToken);
+
+                    // Nếu 401 → thử refresh và retry 1 lần
+                    if (initResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized && account != null)
+                    {
+                        _logger.LogWarning("TikTok 401 - Token hết hạn. Thử làm mới và upload lại...");
+                        var refreshed = await RefreshAccessTokenAsync(account, cancellationToken);
+                        if (refreshed != null)
+                        {
+                            accessToken = refreshed;
+                            using var retryRequest = new HttpRequestMessage(HttpMethod.Post, "https://open.tiktokapis.com/v2/post/publish/video/init/")
+                            {
+                                Content = new StringContent(JsonSerializer.Serialize(initRequestPayload), Encoding.UTF8, "application/json")
+                            };
+                            retryRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                            initResponse = await client.SendAsync(retryRequest, cancellationToken);
+                            initResponseBody = await initResponse.Content.ReadAsStringAsync(cancellationToken);
+                        }
+                    }
 
                     if (!initResponse.IsSuccessStatusCode)
                     {

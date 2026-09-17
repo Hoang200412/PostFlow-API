@@ -36,12 +36,13 @@ namespace PostFlow.Services
             _logger = logger;
         }
 
-        public string GenerateState(string userId, string returnUrl)
+        public string GenerateState(string userId, PlatformType platform, string? returnUrl = null)
         {
             var payload = new
             {
                 UserId = userId,
-                ReturnUrl = returnUrl,
+                Platform = (int)platform,
+                ReturnUrl = returnUrl ?? string.Empty,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
             var json = JsonSerializer.Serialize(payload);
@@ -49,7 +50,7 @@ namespace PostFlow.Services
             return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
         }
 
-        public (string UserId, string ReturnUrl) DecodeState(string state)
+        public (string UserId, PlatformType? Platform, string ReturnUrl) DecodeState(string state)
         {
             if (string.IsNullOrWhiteSpace(state))
             {
@@ -69,12 +70,24 @@ namespace PostFlow.Services
                 using var doc = JsonDocument.Parse(json);
                 var userId = doc.RootElement.GetProperty("UserId").GetString() ?? "";
                 var returnUrl = doc.RootElement.TryGetProperty("ReturnUrl", out var rElem) ? rElem.GetString() ?? "" : "";
-                return (userId, returnUrl);
+                PlatformType? platform = null;
+                if (doc.RootElement.TryGetProperty("Platform", out var pElem))
+                {
+                    if (pElem.ValueKind == JsonValueKind.Number)
+                    {
+                        platform = (PlatformType)pElem.GetInt32();
+                    }
+                    else if (pElem.ValueKind == JsonValueKind.String && Enum.TryParse<PlatformType>(pElem.GetString(), true, out var parsed))
+                    {
+                        platform = parsed;
+                    }
+                }
+                return (userId, platform, returnUrl);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning("Không thể giải mã OAuth state: {Msg}. Fallback sử dụng chuỗi state thô làm UserId.", ex.Message);
-                return (state, "");
+                return (state, null, "");
             }
         }
 

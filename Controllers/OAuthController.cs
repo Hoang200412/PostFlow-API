@@ -27,30 +27,27 @@ namespace PostFlow.Controllers
 
         /// <summary>
         /// API Lấy URL xác thực OAuth để Frontend chuyển hướng người dùng tới Google / TikTok / Meta Facebook.
-        /// Backend tự động tạo state chứa danh tính người dùng và cấu hình redirect_uri trỏ về Backend Callback.
+        /// Redirect URI được cấu hình trỏ trực tiếp về Frontend Callback (mặc định: http://localhost:5173/oauth/callback).
         /// </summary>
         [Authorize]
         [HttpGet("{platform}/login-url")]
         public ActionResult<OAuthLoginUrlResponse> GetLoginUrl(
             [FromRoute] PlatformType platform, 
-            [FromQuery] string? returnUrl = null,
-            [FromQuery] string? redirectUri = null)
+            [FromQuery] string? redirectUri = null,
+            [FromQuery] string? returnUrl = null)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            // Địa chỉ Frontend cần quay về sau khi Backend nhận callback và lưu DB xong
-            var frontendReturnUrl = !string.IsNullOrWhiteSpace(returnUrl) 
-                ? returnUrl 
-                : (!string.IsNullOrWhiteSpace(redirectUri) ? redirectUri : "http://localhost:5173/accounts");
+            // Địa chỉ Frontend Callback mà OAuth Provider sẽ redirect về (FE nhận code & state)
+            var frontendCallbackUrl = !string.IsNullOrWhiteSpace(redirectUri) 
+                ? redirectUri 
+                : (!string.IsNullOrWhiteSpace(returnUrl) ? returnUrl : "http://localhost:5173/oauth/callback");
 
-            // URL callback của Backend mà Google / TikTok / Meta sẽ redirect về
-            var backendCallbackUrl = $"{Request.Scheme}://{Request.Host}/api/oauth/{platform}/callback";
+            // Tạo State an toàn chứa UserId, Platform và Return URL
+            var state = _oauthService.GenerateState(userId, platform, returnUrl);
 
-            // Tạo State an toàn chứa UserId và Frontend Return URL
-            var state = _oauthService.GenerateState(userId, frontendReturnUrl);
-
-            var authUrl = _oauthService.GetAuthorizationUrl(platform, backendCallbackUrl, state);
+            var authUrl = _oauthService.GetAuthorizationUrl(platform, frontendCallbackUrl, state);
             return Ok(new OAuthLoginUrlResponse
             {
                 Platform = platform,
@@ -60,7 +57,7 @@ namespace PostFlow.Controllers
 
         /// <summary>
         /// Endpoint nhận GET Callback trực tiếp từ OAuth Provider (Google, TikTok, Meta).
-        /// Backend tự động đổi token, lưu vào DB và 302 Redirect người dùng về giao diện Frontend React.
+        /// Backend tự động đổi token, lưu vào DB và 302 Redirect người dùng về giao diện Frontend.
         /// </summary>
         [AllowAnonymous]
         [HttpGet("{platform}/callback")]
@@ -86,11 +83,11 @@ namespace PostFlow.Controllers
                 }
                 catch
                 {
-                    // State không giải mã được
+                    // Fallback nếu state không thể giải mã
                 }
             }
 
-            var separator = returnUrl.Contains("?") ? "&" : "?";
+            var separator = returnUrl.Contains('?') ? "&" : "?";
 
             if (!string.IsNullOrWhiteSpace(error))
             {
@@ -131,11 +128,6 @@ namespace PostFlow.Controllers
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
-
-            if (string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.RedirectUri))
-            {
-                throw new BadRequestException("Code và RedirectUri không được để trống.");
-            }
 
             var account = await _oauthService.HandleCallbackAsync(userId, platform, request.Code, request.RedirectUri);
             return Ok(account);
