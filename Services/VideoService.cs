@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Hangfire;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using PostFlow.Data;
 using PostFlow.Exceptions;
@@ -52,12 +55,56 @@ namespace PostFlow.Services
         public async Task<VideoAssetDto> GetByIdAsync(string userId, string id)
         {
             var video = await _context.VideoAssets
-                .FirstOrDefaultAsync(v => v.Id == id && v.UserId == userId);
+                .FirstOrDefaultAsync(v => v.Id == id && v.UserId == userId)
+                ?? throw new NotFoundException($"Không tìm thấy video với ID {id}");
 
-            if (video == null)
+            return video.ToDto();
+        }
+
+        public async Task<VideoAssetDto> UpdateAsync(string userId, string id, VideoUpdateRequest request)
+        {
+            var video = await _context.VideoAssets
+                .FirstOrDefaultAsync(v => v.Id == id && v.UserId == userId)
+                ?? throw new NotFoundException($"Không tìm thấy video với ID {id}");
+
+            if (request.Title != null) video.Title = request.Title;
+            if (request.Description != null) video.Description = request.Description;
+            if (request.Tags != null) video.Tags = request.Tags;
+            video.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return video.ToDto();
+        }
+
+        public async Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags)
+        {
+            var tempDir = Path.Combine(Directory.GetCurrentDirectory(), "temp_uploads");
+            if (!Directory.Exists(tempDir))
             {
-                throw new NotFoundException($"Không tìm thấy video với ID {id}");
+                Directory.CreateDirectory(tempDir);
             }
+
+            var tempFileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+            var tempFilePath = Path.Combine(tempDir, tempFileName);
+
+            using (var stream = new FileStream(tempFilePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            var video = new VideoAsset
+            {
+                UserId = userId,
+                Title = !string.IsNullOrWhiteSpace(title) ? title : Path.GetFileNameWithoutExtension(file.FileName),
+                Description = description ?? string.Empty,
+                Tags = tags ?? new List<string>(),
+                LocalFilePath = tempFilePath,
+                Status = "Ready",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.VideoAssets.Add(video);
+            await _context.SaveChangesAsync();
 
             return video.ToDto();
         }
@@ -65,53 +112,41 @@ namespace PostFlow.Services
         public async Task DeleteAsync(string userId, string id)
         {
             var video = await _context.VideoAssets
-                .FirstOrDefaultAsync(v => v.Id == id && v.UserId == userId);
-
-            if (video == null)
-            {
-                throw new NotFoundException($"Không tìm thấy video với ID {id}");
-            }
-
-            var hasActiveJobs = await _context.UploadJobs
-                .AnyAsync(j => j.VideoAssetId == id && (j.Status == UploadStatus.Pending || j.Status == UploadStatus.Processing));
-
-            if (hasActiveJobs || video.Status == "Rendering")
-            {
-                throw new ConflictException("Không thể xóa video khi đang render hoặc đang tải lên.");
-            }
+                .FirstOrDefaultAsync(v => v.Id == id && v.UserId == userId)
+                ?? throw new NotFoundException($"Không tìm thấy video với ID {id}");
 
             if (!string.IsNullOrEmpty(video.LocalFilePath))
             {
-                await _storageService.DeleteFileAsync(video.LocalFilePath);
+                try { await _storageService.DeleteFileAsync(video.LocalFilePath); } catch { }
             }
 
             _context.VideoAssets.Remove(video);
             await _context.SaveChangesAsync();
         }
 
+        public async Task BatchDeleteAsync(string userId, List<string> ids)
+        {
+            var videos = await _context.VideoAssets
+                .Where(v => ids.Contains(v.Id) && v.UserId == userId)
+                .ToListAsync();
+
+            foreach (var video in videos)
+            {
+                if (!string.IsNullOrEmpty(video.LocalFilePath))
+                {
+                    try { await _storageService.DeleteFileAsync(video.LocalFilePath); } catch { }
+                }
+                _context.VideoAssets.Remove(video);
+            }
+
+            await _context.SaveChangesAsync();
+        }
+
         public async Task<object> GenerateAsync(string userId, VideoGenerateRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Topic))
-            {
-                throw new BadRequestException("Topic cannot be empty.");
-            }
-
             var dna = await _context.ContentDNAs
-                .FirstOrDefaultAsync(d => d.Id == request.ContentDnaId && d.UserId == userId);
-            if (dna == null)
-            {
-                throw new BadRequestException("Content DNA không tồn tại hoặc không thuộc quyền sở hữu.");
-            }
-
-            if (request.ChannelIds != null && request.ChannelIds.Length > 0)
-            {
-                var channelsCount = await _context.SocialAccounts
-                    .CountAsync(sa => request.ChannelIds.Contains(sa.Id) && sa.UserId == userId);
-                if (channelsCount != request.ChannelIds.Length)
-                {
-                    throw new BadRequestException("Một số kênh truyền hình liên kết không tồn tại.");
-                }
-            }
+                .FirstOrDefaultAsync(d => d.Id == request.ContentDnaId && d.UserId == userId)
+                ?? throw new BadRequestException("Content DNA không tồn tại hoặc không thuộc quyền sở hữu.");
 
             var today = DateTime.Today;
             var currentQuota = await _context.ApiUsageLogs

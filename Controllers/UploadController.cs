@@ -131,7 +131,12 @@ namespace PostFlow.Controllers
         [HttpPost("enqueue")]
         public async Task<ActionResult<UploadJobDto>> EnqueueJob([FromBody] EnqueueUploadRequest request)
         {
-            var job = await _uploadService.EnqueueUploadJobAsync(request.UserId, request.VideoAssetId, request.SocialAccountId);
+            var job = await _uploadService.EnqueueUploadJobAsync(
+                request.UserId, 
+                request.VideoAssetId, 
+                request.SocialAccountId, 
+                request.ScheduledAt, 
+                request.PlatformMetadataOverride);
             return AcceptedAtAction(nameof(GetJobById), new { jobId = job.Id }, job.ToDto());
         }
 
@@ -142,11 +147,6 @@ namespace PostFlow.Controllers
         [HttpPost("local-path")]
         public async Task<ActionResult<UploadJobDto>> UploadFromLocalPath([FromBody] LocalPathUploadRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.VideoFilePath))
-            {
-                throw new BadRequestException("Đường dẫn file video không được để trống.");
-            }
-
             // Đảm bảo có mock data trong DB để làm việc
             var (userId, socialAccountId, videoAssetId) = await GetOrCreateDefaultTestIds(
                 request.Platform, 
@@ -165,11 +165,6 @@ namespace PostFlow.Controllers
         [Consumes("multipart/form-data")]
         public async Task<ActionResult<UploadJobDto>> UploadFile([FromForm] FileUploadRequest request)
         {
-            if (request.File == null || request.File.Length == 0)
-            {
-                throw new BadRequestException("Vui lòng chọn file video hợp lệ.");
-            }
-
             var tempDir = Path.Combine(Directory.GetCurrentDirectory(), "temp_uploads");
             if (!Directory.Exists(tempDir))
             {

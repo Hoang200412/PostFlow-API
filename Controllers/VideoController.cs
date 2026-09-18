@@ -49,6 +49,33 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
+        /// API Cập nhật thông tin video tài sản (Tiêu đề, mô tả, tags)
+        /// </summary>
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Update(string id, [FromBody] VideoUpdateRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var updated = await _videoService.UpdateAsync(userId, id, request);
+            return Ok(updated);
+        }
+
+        /// <summary>
+        /// API Tải lên file video trực tiếp vào thư viện
+        /// </summary>
+        [HttpPost("upload")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> Upload([FromForm] VideoUploadRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var video = await _videoService.UploadVideoAsync(userId, request.File, request.Title, request.Description, request.GetTagList());
+            return Ok(video);
+        }
+
+        /// <summary>
         /// API Xóa video tài sản theo ID (Xóa file vật lý và dữ liệu DB)
         /// </summary>
         [HttpDelete("{id}")]
@@ -58,6 +85,19 @@ namespace PostFlow.Controllers
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
             await _videoService.DeleteAsync(userId, id);
+            return NoContent();
+        }
+
+        /// <summary>
+        /// API Xóa hàng loạt video tài sản theo danh sách ID
+        /// </summary>
+        [HttpDelete("batch")]
+        public async Task<IActionResult> BatchDelete([FromBody] BatchDeleteRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            await _videoService.BatchDeleteAsync(userId, request.Ids);
             return NoContent();
         }
 

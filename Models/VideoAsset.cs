@@ -23,6 +23,7 @@ namespace PostFlow.Models
         public string Status { get; set; } = "Ready"; // "Pending", "Rendering", "Ready", "Failed", "Uploading"
         public string? ContentDNAId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? UpdatedAt { get; set; }
 
         // Navigation Properties cho Entity Framework Core
         public virtual User? User { get; set; }

@@ -89,3 +89,46 @@ Content-Type: application/json
   "videoAssetId": "YOUR_MOCK_VIDEO_ASSET_ID",
   "socialAccountId": "YOUR_MOCK_SOCIAL_ACCOUNT_ID"
 }
+
+###
+
+# Video Library: Lấy danh sách video có phân trang
+GET {{PostFlow_HostAddress}}/api/videos?page=1&limit=10
+Authorization: Bearer YOUR_JWT_TOKEN
+
+###
+
+# Video Library: Lấy chi tiết video
+GET {{PostFlow_HostAddress}}/api/videos/YOUR_VIDEO_ID
+Authorization: Bearer YOUR_JWT_TOKEN
+
+###
+
+# Video Library: Cập nhật video
+PUT {{PostFlow_HostAddress}}/api/videos/YOUR_VIDEO_ID
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "title": "Tiêu đề video mới cập nhật",
+  "description": "Mô tả chi tiết video mới",
+  "tags": ["reels", "tiktok", "viral"]
+}
+
+###
+
+# Video Library: Xóa video
+DELETE {{PostFlow_HostAddress}}/api/videos/YOUR_VIDEO_ID
+Authorization: Bearer YOUR_JWT_TOKEN
+
+###
+
+# Video Library: Xóa hàng loạt video
+DELETE {{PostFlow_HostAddress}}/api/videos/batch
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "ids": ["VIDEO_ID_1", "VIDEO_ID_2"]
+}
+
