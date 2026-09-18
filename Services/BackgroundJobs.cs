@@ -19,18 +19,18 @@ namespace PostFlow.Services
     {
         private readonly AppDbContext _context;
         private readonly IVideoGenerationService _videoGenService;
-        private readonly IVideoUploadService _uploadService;
+        private readonly IPublishingService _publishingService;
         private readonly ILogger<BackgroundJobs> _logger;
 
         public BackgroundJobs(
             AppDbContext context,
             IVideoGenerationService videoGenService,
-            IVideoUploadService uploadService,
+            IPublishingService publishingService,
             ILogger<BackgroundJobs> logger)
         {
             _context = context;
             _videoGenService = videoGenService;
-            _uploadService = uploadService;
+            _publishingService = publishingService;
             _logger = logger;
         }
 
@@ -71,12 +71,12 @@ namespace PostFlow.Services
                 {
                     try
                     {
-                        await _uploadService.EnqueueUploadJobAsync(video.UserId, video.Id, channelId, scheduledAt, null);
-                        _logger.LogInformation("Đã tạo PostingJob cho Kênh {ChannelId}", channelId);
+                        await _publishingService.EnqueueJobAsync(video.UserId, video.Id, channelId, scheduledAt, null);
+                        _logger.LogInformation("Đã tạo PublishingJob cho Kênh {ChannelId}", channelId);
                     }
                     catch (Exception jobEx)
                     {
-                        _logger.LogError(jobEx, "Lỗi tạo PostingJob cho Kênh {ChannelId}", channelId);
+                        _logger.LogError(jobEx, "Lỗi tạo PublishingJob cho Kênh {ChannelId}", channelId);
                     }
                 }
             }

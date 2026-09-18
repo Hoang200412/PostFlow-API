@@ -12,11 +12,11 @@ namespace PostFlow.Controllers
     [Route("api/videos")]
     public class VideoController : ControllerBase
     {
-        private readonly IVideoService _videoService;
+        private readonly IVideoAssetService _videoAssetService;
 
-        public VideoController(IVideoService videoService)
+        public VideoController(IVideoAssetService videoAssetService)
         {
-            _videoService = videoService;
+            _videoAssetService = videoAssetService;
         }
 
         private string? GetCurrentUserId() =>
@@ -31,7 +31,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var result = await _videoService.GetListAsync(userId, page, limit);
+            var result = await _videoAssetService.GetListAsync(userId, page, limit);
             return Ok(result);
         }
 
@@ -44,7 +44,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var video = await _videoService.GetByIdAsync(userId, id);
+            var video = await _videoAssetService.GetByIdAsync(userId, id);
             return Ok(video);
         }
 
@@ -57,7 +57,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var updated = await _videoService.UpdateAsync(userId, id, request);
+            var updated = await _videoAssetService.UpdateAsync(userId, id, request);
             return Ok(updated);
         }
 
@@ -71,7 +71,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var video = await _videoService.UploadVideoAsync(userId, request.File, request.Title, request.Description, request.GetTagList());
+            var video = await _videoAssetService.UploadVideoAsync(userId, request.File, request.Title, request.Description, request.GetTagList());
             return Ok(video);
         }
 
@@ -84,7 +84,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            await _videoService.DeleteAsync(userId, id);
+            await _videoAssetService.DeleteAsync(userId, id);
             return NoContent();
         }
 
@@ -97,7 +97,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            await _videoService.BatchDeleteAsync(userId, request.Ids);
+            await _videoAssetService.BatchDeleteAsync(userId, request.Ids);
             return NoContent();
         }
 
@@ -110,8 +110,45 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var result = await _videoService.GenerateAsync(userId, request);
+            var result = await _videoAssetService.GenerateAsync(userId, request);
             return Accepted(result);
+        }
+
+        /// <summary>
+        /// API Lấy Presigned URL để chuẩn bị upload file video lớn
+        /// </summary>
+        [HttpPost("presigned-upload")]
+        public async Task<IActionResult> GetPresignedUploadUrl([FromBody] PresignedUploadRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var result = await _videoAssetService.GetPresignedUploadUrlAsync(userId, request, Request.Scheme, Request.Host.ToString());
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// API Tải luồng Binary file video lên hệ thống lưu trữ server
+        /// </summary>
+        [AllowAnonymous]
+        [HttpPut("upload-binary/{videoId}")]
+        public async Task<IActionResult> UploadBinary(string videoId)
+        {
+            var result = await _videoAssetService.UploadBinaryAsync(videoId, Request.Body);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// API Xác nhận tải video lên hoàn tất
+        /// </summary>
+        [HttpPost("upload-confirm")]
+        public async Task<IActionResult> UploadConfirm([FromBody] UploadConfirmRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var result = await _videoAssetService.UploadConfirmAsync(userId, request);
+            return Created($"/api/videos/{request.VideoId}", result);
         }
     }
 }

@@ -1,129 +1,41 @@
 @PostFlow_HostAddress = http://localhost:5042
 
-GET {{PostFlow_HostAddress}}/weatherforecast/
-Accept: application/json
+### =================================================================
+### 1. VIDEO ASSET MANAGEMENT (/api/videos)
+### =================================================================
 
-###
-
-# Test Ping Endpoint
-GET {{PostFlow_HostAddress}}/api/upload/ping
-Accept: application/json
-
-###
-
-# Get all upload jobs
-GET {{PostFlow_HostAddress}}/api/upload/jobs
-Accept: application/json
-
-###
-
-# Upload video from local file path (YouTube example)
-POST {{PostFlow_HostAddress}}/api/upload/local-path
-Content-Type: application/json
-
-{
-  "videoFilePath": "C:\\path\\to\\your\\video.mp4",
-  "platform": 0,
-  "metadata": {
-    "title": "Video test upload YouTube",
-    "description": "Mô tả test upload qua PostFlow",
-    "tags": ["test", "api", "youtube"],
-    "privacyStatus": "public"
-  }
-}
-
-###
-
-# Upload video from local file path (TikTok example)
-POST {{PostFlow_HostAddress}}/api/upload/local-path
-Content-Type: application/json
-
-{
-  "videoFilePath": "C:\\path\\to\\your\\video.mp4",
-  "platform": 1,
-  "metadata": {
-    "title": "Video test upload TikTok",
-    "description": "Mô tả test upload qua PostFlow",
-    "tags": ["test", "tiktok"],
-    "privacyStatus": "public"
-  }
-}
-
-###
-
-# Upload video from local file path (Facebook Reels example)
-POST {{PostFlow_HostAddress}}/api/upload/local-path
-Content-Type: application/json
-
-{
-  "videoFilePath": "C:\\path\\to\\your\\video.mp4",
-  "platform": 2,
-  "metadata": {
-    "title": "Video test upload Facebook Reels",
-    "description": "Mô tả test upload qua PostFlow",
-    "tags": ["test", "facebook", "reels"],
-    "privacyStatus": "public"
-  }
-}
-
-###
-
-# Check job status (Replace JOB_ID_HERE with the ID returned by the upload endpoint)
-GET {{PostFlow_HostAddress}}/api/upload/jobs/JOB_ID_HERE
-Accept: application/json
-
-###
-
-# Seed Mock Data (Tạo User, Social Accounts và Video Asset giả lập để lấy các ID test)
-POST {{PostFlow_HostAddress}}/api/upload/seed
-Accept: application/json
-
-###
-
-# Enqueue Upload Job using foreign keys (Điền ID nhận được từ bước Seed ở trên vào đây)
-POST {{PostFlow_HostAddress}}/api/upload/enqueue
-Content-Type: application/json
-
-{
-  "userId": "YOUR_MOCK_USER_ID",
-  "videoAssetId": "YOUR_MOCK_VIDEO_ASSET_ID",
-  "socialAccountId": "YOUR_MOCK_SOCIAL_ACCOUNT_ID"
-}
-
-###
-
-# Video Library: Lấy danh sách video có phân trang
+# Lấy danh sách video (Có phân trang)
 GET {{PostFlow_HostAddress}}/api/videos?page=1&limit=10
 Authorization: Bearer YOUR_JWT_TOKEN
 
 ###
 
-# Video Library: Lấy chi tiết video
+# Lấy thông tin chi tiết một video theo ID
 GET {{PostFlow_HostAddress}}/api/videos/YOUR_VIDEO_ID
 Authorization: Bearer YOUR_JWT_TOKEN
 
 ###
 
-# Video Library: Cập nhật video
+# Cập nhật metadata video (Title, Description, Tags)
 PUT {{PostFlow_HostAddress}}/api/videos/YOUR_VIDEO_ID
 Content-Type: application/json
 Authorization: Bearer YOUR_JWT_TOKEN
 
 {
-  "title": "Tiêu đề video mới cập nhật",
-  "description": "Mô tả chi tiết video mới",
+  "title": "Tiêu đề video cập nhật",
+  "description": "Mô tả chi tiết nội dung video",
   "tags": ["reels", "tiktok", "viral"]
 }
 
 ###
 
-# Video Library: Xóa video
+# Xóa một video theo ID
 DELETE {{PostFlow_HostAddress}}/api/videos/YOUR_VIDEO_ID
 Authorization: Bearer YOUR_JWT_TOKEN
 
 ###
 
-# Video Library: Xóa hàng loạt video
+# Xóa hàng loạt video theo danh sách ID
 DELETE {{PostFlow_HostAddress}}/api/videos/batch
 Content-Type: application/json
 Authorization: Bearer YOUR_JWT_TOKEN
@@ -132,3 +44,84 @@ Authorization: Bearer YOUR_JWT_TOKEN
   "ids": ["VIDEO_ID_1", "VIDEO_ID_2"]
 }
 
+###
+
+# Sinh video tự động bằng AI
+POST {{PostFlow_HostAddress}}/api/videos/generate
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "topic": "5 mẹo phát triển bản thân",
+  "contentDnaId": "YOUR_DNA_ID",
+  "channelIds": ["CHANNEL_ID_1"]
+}
+
+###
+
+# Lấy Presigned URL để upload file video lớn
+POST {{PostFlow_HostAddress}}/api/videos/presigned-upload
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "filename": "my_video.mp4",
+  "contentType": "video/mp4",
+  "fileSize": 15000000
+}
+
+###
+
+# Xác nhận hoàn tất upload video
+POST {{PostFlow_HostAddress}}/api/videos/upload-confirm
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "videoId": "YOUR_VIDEO_ID"
+}
+
+
+### =================================================================
+### 2. PUBLISHING & SCHEDULING JOBS (/api/publishing-jobs)
+### =================================================================
+
+# Lấy danh sách các bài đăng / lịch đăng (Tùy chọn lọc status, channelId)
+GET {{PostFlow_HostAddress}}/api/publishing-jobs
+Authorization: Bearer YOUR_JWT_TOKEN
+
+###
+
+# Lấy chi tiết bài đăng / lịch đăng theo Job ID
+GET {{PostFlow_HostAddress}}/api/publishing-jobs/YOUR_JOB_ID
+Authorization: Bearer YOUR_JWT_TOKEN
+
+###
+
+# Khởi tạo bài đăng mới (Đăng ngay hoặc Hẹn giờ đăng)
+POST {{PostFlow_HostAddress}}/api/publishing-jobs/enqueue
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "videoAssetId": "YOUR_VIDEO_ASSET_ID",
+  "socialAccountId": "YOUR_SOCIAL_ACCOUNT_ID",
+  "scheduledAt": "2026-09-20T12:00:00Z"
+}
+
+###
+
+# Cập nhật lịch đăng bài hoặc Metadata override
+PUT {{PostFlow_HostAddress}}/api/publishing-jobs/YOUR_JOB_ID
+Content-Type: application/json
+Authorization: Bearer YOUR_JWT_TOKEN
+
+{
+  "scheduledAt": "2026-09-21T18:30:00Z"
+}
+
+###
+
+# Hủy bài đăng đang chờ xử lý
+DELETE {{PostFlow_HostAddress}}/api/publishing-jobs/YOUR_JOB_ID
+Authorization: Bearer YOUR_JWT_TOKEN

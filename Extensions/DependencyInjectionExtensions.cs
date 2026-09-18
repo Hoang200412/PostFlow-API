@@ -26,9 +26,9 @@ public static class DependencyInjectionExtensions
         services.AddTransient<IVideoUploader, TikTokUploader>();
         services.AddTransient<IVideoUploader, FacebookReelsUploader>();
 
-        // Register Factory & Orchestration Service
-        services.AddTransient<VideoUploaderFactory>();
-        services.AddScoped<IVideoUploadService, VideoUploadService>();
+        // Register Factory & Publishing Service
+        services.AddTransient<IPlatformPublisherFactory, PlatformPublisherFactory>();
+        services.AddScoped<IPublishingService, PublishingService>();
 
         // Register Storage, Video Generation, and Background Jobs Services
         services.AddScoped<IStorageService, StorageService>();
@@ -44,11 +44,9 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IOAuthService, OAuthService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
-        services.AddScoped<IAssetService, AssetService>();
+        services.AddScoped<IVideoAssetService, VideoAssetService>();
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IContentDnaService, ContentDnaService>();
-        services.AddScoped<IPostingJobService, PostingJobService>();
-        services.AddScoped<IVideoService, VideoService>();
         services.AddScoped<IWebhookService, WebhookService>();
 
         return services;
