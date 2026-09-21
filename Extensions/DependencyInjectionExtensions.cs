@@ -3,7 +3,7 @@ using PostFlow.Configuration;
 using PostFlow.Models;
 using PostFlow.Services;
 using PostFlow.Services.Interfaces;
-using PostFlow.Services.Uploaders;
+using PostFlow.Services.Publishers;
 
 namespace PostFlow.Extensions;
 
@@ -18,20 +18,21 @@ public static class DependencyInjectionExtensions
             options.LowercaseQueryStrings = true;
         });
 
-        // Bind Platform API Settings from appsettings.json
+        // Bind Platform API & Storage Settings from appsettings.json
         services.Configure<PlatformSettings>(configuration.GetSection("PlatformSettings"));
+        services.Configure<CloudflareR2Settings>(configuration.GetSection("CloudflareR2"));
 
-        // Register Platform-specific uploaders
-        services.AddTransient<IVideoUploader, YouTubeUploader>();
-        services.AddTransient<IVideoUploader, TikTokUploader>();
-        services.AddTransient<IVideoUploader, FacebookReelsUploader>();
+        // Register Platform-specific publishers
+        services.AddTransient<ISocialPublisher, YouTubePublisher>();
+        services.AddTransient<ISocialPublisher, TikTokPublisher>();
+        services.AddTransient<ISocialPublisher, FacebookReelsPublisher>();
 
         // Register Factory & Publishing Service
         services.AddTransient<IPlatformPublisherFactory, PlatformPublisherFactory>();
         services.AddScoped<IPublishingService, PublishingService>();
 
-        // Register Storage, Video Generation, and Background Jobs Services
-        services.AddScoped<IStorageService, StorageService>();
+        // Register Cloudflare R2 Storage, Video Generation, and Background Jobs Services
+        services.AddScoped<IStorageService, CloudflareR2StorageService>();
         services.AddScoped<IVideoGenerationService, VideoGenerationService>();
         services.AddScoped<IBackgroundJobs, BackgroundJobs>();
 

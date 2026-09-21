@@ -21,17 +21,20 @@ namespace PostFlow.Services
     {
         private readonly AppDbContext _context;
         private readonly IPlatformPublisherFactory _publisherFactory;
+        private readonly IStorageService _storageService;
         private readonly IBackgroundJobClient _backgroundJobClient;
         private readonly ILogger<PublishingService> _logger;
 
         public PublishingService(
             AppDbContext context,
             IPlatformPublisherFactory publisherFactory,
+            IStorageService storageService,
             IBackgroundJobClient backgroundJobClient,
             ILogger<PublishingService> logger)
         {
             _context = context;
             _publisherFactory = publisherFactory;
+            _storageService = storageService;
             _backgroundJobClient = backgroundJobClient;
             _logger = logger;
         }
@@ -259,24 +262,44 @@ namespace PostFlow.Services
                     Tags = tags
                 };
 
-                var result = await publisher.UploadAsync(
-                    job.VideoAsset.LocalFilePath,
-                    metadata,
-                    job.SocialAccount,
-                    progressReporter,
-                    cancellationToken);
+                string effectiveFilePath = job.VideoAsset.LocalFilePath;
+                bool isTempFile = false;
 
-                if (result.IsSuccess)
+                if (!File.Exists(effectiveFilePath))
                 {
-                    job.Status = UploadStatus.Completed;
-                    job.VideoUrl = result.VideoUrl;
-                    job.PlatformPostId = result.VideoId ?? Guid.NewGuid().ToString().Substring(0, 8);
-                    job.ProgressPercentage = 100;
-                    _logger.LogInformation("Job {JobId} xuất bản thành công! URL: {Url}", jobId, result.VideoUrl);
+                    _logger.LogInformation("File video không tồn tại trên local disk. Đang tải tạm từ Cloudflare R2: {Path}", job.VideoAsset.LocalFilePath);
+                    effectiveFilePath = await _storageService.DownloadToTempFileAsync(job.VideoAsset.LocalFilePath);
+                    isTempFile = true;
                 }
-                else
+
+                try
                 {
-                    throw new Exception(result.ErrorMessage ?? "Publisher trả về trạng thái thất bại.");
+                    var result = await publisher.PublishAsync(
+                        effectiveFilePath,
+                        metadata,
+                        job.SocialAccount,
+                        progressReporter,
+                        cancellationToken);
+
+                    if (result.IsSuccess)
+                    {
+                        job.Status = UploadStatus.Completed;
+                        job.VideoUrl = result.VideoUrl;
+                        job.PlatformPostId = result.VideoId ?? Guid.NewGuid().ToString().Substring(0, 8);
+                        job.ProgressPercentage = 100;
+                        _logger.LogInformation("Job {JobId} xuất bản thành công! URL: {Url}", jobId, result.VideoUrl);
+                    }
+                    else
+                    {
+                        throw new Exception(result.ErrorMessage ?? "Publisher trả về trạng thái thất bại.");
+                    }
+                }
+                finally
+                {
+                    if (isTempFile && File.Exists(effectiveFilePath))
+                    {
+                        try { File.Delete(effectiveFilePath); } catch { }
+                    }
                 }
             }
             catch (Exception ex)

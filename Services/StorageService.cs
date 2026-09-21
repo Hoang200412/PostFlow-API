@@ -2,23 +2,30 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Services
 {
+    /// <summary>
+    /// Local Storage implementation của IStorageService.
+    /// Dùng để lưu trữ file trực tiếp trên ổ đĩa local / wwwroot của server.
+    /// </summary>
     public class StorageService : IStorageService
     {
         private readonly IWebHostEnvironment _env;
+        private readonly ILogger<StorageService> _logger;
 
-        public StorageService(IWebHostEnvironment env)
+        public StorageService(IWebHostEnvironment env, ILogger<StorageService> logger)
         {
             _env = env;
+            _logger = logger;
         }
 
         private string GetFullPath(string folderName, string fileName)
         {
             var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var directory = Path.Combine(webRoot, folderName);
+            var directory = Path.Combine(webRoot, folderName.Trim('/', '\\'));
             if (!Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
@@ -26,32 +33,70 @@ namespace PostFlow.Services
             return Path.Combine(directory, fileName);
         }
 
-        public async Task<string> SaveFileAsync(Stream fileStream, string folderName, string fileName)
+        private string ResolveLocalPath(string fileUrlOrPath)
+        {
+            if (string.IsNullOrWhiteSpace(fileUrlOrPath)) return string.Empty;
+
+            if (File.Exists(fileUrlOrPath))
+            {
+                return fileUrlOrPath;
+            }
+
+            var relativePath = fileUrlOrPath.TrimStart('/', '\\');
+            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            return Path.Combine(webRoot, relativePath);
+        }
+
+        public async Task<string> SaveFileAsync(Stream fileStream, string folderName, string fileName, string? contentType = null)
         {
             var fullPath = GetFullPath(folderName, fileName);
-            using (var destinationStream = new FileStream(fullPath, FileMode.Create))
+            using (var destinationStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
             {
                 await fileStream.CopyToAsync(destinationStream);
             }
-            return $"/{folderName}/{fileName}";
+            _logger.LogInformation("Đã lưu file vào local disk: {Path}", fullPath);
+            return $"{folderName.Trim('/')}/{fileName}";
+        }
+
+        public Task<Stream> GetFileStreamAsync(string fileUrlOrPath)
+        {
+            var localPath = ResolveLocalPath(fileUrlOrPath);
+            if (!File.Exists(localPath))
+            {
+                throw new FileNotFoundException($"Không tìm thấy file local tại: {fileUrlOrPath}");
+            }
+
+            Stream stream = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return Task.FromResult(stream);
+        }
+
+        public Task<string> DownloadToTempFileAsync(string fileUrlOrPath)
+        {
+            var localPath = ResolveLocalPath(fileUrlOrPath);
+            if (File.Exists(localPath))
+            {
+                return Task.FromResult(localPath);
+            }
+
+            throw new FileNotFoundException($"Không tìm thấy file local tại: {fileUrlOrPath}");
         }
 
         public Task<bool> DeleteFileAsync(string fileUrlOrPath)
         {
-            var relativePath = fileUrlOrPath.TrimStart('/');
-            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var fullPath = Path.Combine(webRoot, relativePath);
-
-            if (File.Exists(fullPath))
+            var localPath = ResolveLocalPath(fileUrlOrPath);
+            if (File.Exists(localPath))
             {
-                File.Delete(fullPath);
-                return Task.FromResult(true);
-            }
-
-            if (File.Exists(fileUrlOrPath))
-            {
-                File.Delete(fileUrlOrPath);
-                return Task.FromResult(true);
+                try
+                {
+                    File.Delete(localPath);
+                    _logger.LogInformation("Đã xóa file local: {Path}", localPath);
+                    return Task.FromResult(true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi xóa file local: {Path}", localPath);
+                    return Task.FromResult(false);
+                }
             }
 
             return Task.FromResult(false);
@@ -59,41 +104,32 @@ namespace PostFlow.Services
 
         public Task<bool> FileExistsAsync(string fileUrlOrPath)
         {
-            var relativePath = fileUrlOrPath.TrimStart('/');
-            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var fullPath = Path.Combine(webRoot, relativePath);
-
-            return Task.FromResult(File.Exists(fullPath) || File.Exists(fileUrlOrPath));
+            var localPath = ResolveLocalPath(fileUrlOrPath);
+            return Task.FromResult(File.Exists(localPath));
         }
 
         public Task<long> GetFileSizeAsync(string fileUrlOrPath)
         {
-            var relativePath = fileUrlOrPath.TrimStart('/');
-            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var fullPath = Path.Combine(webRoot, relativePath);
-
-            if (File.Exists(fullPath))
+            var localPath = ResolveLocalPath(fileUrlOrPath);
+            if (File.Exists(localPath))
             {
-                return Task.FromResult(new FileInfo(fullPath).Length);
-            }
-
-            if (File.Exists(fileUrlOrPath))
-            {
-                return Task.FromResult(new FileInfo(fileUrlOrPath).Length);
+                return Task.FromResult(new FileInfo(localPath).Length);
             }
 
             return Task.FromResult(0L);
         }
 
-        public Task<string> GeneratePresignedUploadUrlAsync(string folderName, string fileName, int expiryMinutes = 15)
+        public Task<string> GeneratePresignedUploadUrlAsync(string folderName, string fileName, int expiryMinutes = 15, string? contentType = null)
         {
-            // Trả về relative path làm URL giả lập để client PUT dữ liệu nhị phân lên
-            return Task.FromResult($"/{folderName}/{fileName}");
+            // Trong môi trường local, trả về endpoint upload binary của backend
+            var objectKey = $"{folderName.Trim('/')}/{fileName}";
+            return Task.FromResult($"/api/videos/upload-binary/{fileName}");
         }
 
         public Task<string> GeneratePresignedDownloadUrlAsync(string fileUrlOrPath, int expiryHours = 1)
         {
-            return Task.FromResult(fileUrlOrPath);
+            var relativePath = fileUrlOrPath.TrimStart('/');
+            return Task.FromResult($"/{relativePath}");
         }
     }
 }

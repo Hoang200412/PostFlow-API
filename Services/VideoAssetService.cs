@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Hangfire;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using PostFlow.Configuration;
 using PostFlow.Data;
 using PostFlow.Exceptions;
 using PostFlow.Models;
@@ -21,17 +23,20 @@ namespace PostFlow.Services
         private readonly IStorageService _storageService;
         private readonly IPublishingService _publishingService;
         private readonly IBackgroundJobClient _backgroundJobClient;
+        private readonly CloudflareR2Settings _r2Settings;
 
         public VideoAssetService(
             AppDbContext context,
             IStorageService storageService,
             IPublishingService publishingService,
-            IBackgroundJobClient backgroundJobClient)
+            IBackgroundJobClient backgroundJobClient,
+            IOptions<CloudflareR2Settings> r2Settings)
         {
             _context = context;
             _storageService = storageService;
             _publishingService = publishingService;
             _backgroundJobClient = backgroundJobClient;
+            _r2Settings = r2Settings.Value;
         }
 
         public async Task<object> GetListAsync(string userId, int page, int limit)
@@ -81,18 +86,14 @@ namespace PostFlow.Services
 
         public async Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags)
         {
-            var tempDir = Path.Combine(Directory.GetCurrentDirectory(), "temp_uploads");
-            if (!Directory.Exists(tempDir))
+            if (file.Length <= 0)
             {
-                Directory.CreateDirectory(tempDir);
+                throw new BadRequestException("File upload không có dữ liệu.");
             }
 
-            var tempFileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
-            var tempFilePath = Path.Combine(tempDir, tempFileName);
-
-            using (var stream = new FileStream(tempFilePath, FileMode.Create))
+            if (file.Length > _r2Settings.MaxFileSizeBytes)
             {
-                await file.CopyToAsync(stream);
+                throw new PayloadTooLargeException($"Dung lượng file vượt quá giới hạn cho phép ({_r2Settings.MaxFileSizeMB}MB).");
             }
 
             var video = new VideoAsset
@@ -101,11 +102,20 @@ namespace PostFlow.Services
                 Title = !string.IsNullOrWhiteSpace(title) ? title : Path.GetFileNameWithoutExtension(file.FileName),
                 Description = description ?? string.Empty,
                 Tags = tags ?? new List<string>(),
-                LocalFilePath = tempFilePath,
                 Status = "Ready",
                 CreatedAt = DateTime.UtcNow
             };
 
+            var ext = Path.GetExtension(file.FileName);
+            if (string.IsNullOrEmpty(ext)) ext = ".mp4";
+            var now = DateTime.UtcNow;
+            var folderName = $"videos/{userId}/{now:yyyy}/{now:MM}";
+            var fileName = $"{video.Id}{ext}";
+
+            using var stream = file.OpenReadStream();
+            var storagePath = await _storageService.SaveFileAsync(stream, folderName, fileName, file.ContentType);
+
+            video.LocalFilePath = storagePath;
             _context.VideoAssets.Add(video);
             await _context.SaveChangesAsync();
 
@@ -193,9 +203,9 @@ namespace PostFlow.Services
                 throw new BadRequestException("Chỉ hỗ trợ định dạng video.");
             }
 
-            if (request.FileSize > 500 * 1024 * 1024) // 500MB
+            if (request.FileSize > _r2Settings.MaxFileSizeBytes)
             {
-                throw new PayloadTooLargeException("File quá lớn, dung lượng tối đa là 500MB.");
+                throw new PayloadTooLargeException($"File quá lớn, dung lượng tối đa là {_r2Settings.MaxFileSizeMB}MB.");
             }
 
             var video = new VideoAsset
@@ -204,18 +214,27 @@ namespace PostFlow.Services
                 Title = Path.GetFileNameWithoutExtension(request.Filename),
                 Description = "Video tải lên thủ công",
                 Status = "Uploading",
-                LocalFilePath = string.Empty
+                CreatedAt = DateTime.UtcNow
             };
 
+            var ext = Path.GetExtension(request.Filename);
+            if (string.IsNullOrEmpty(ext)) ext = ".mp4";
+            var now = DateTime.UtcNow;
+            var folderName = $"videos/{userId}/{now:yyyy}/{now:MM}";
+            var fileName = $"{video.Id}{ext}";
+            var objectKey = $"{folderName}/{fileName}";
+
+            video.LocalFilePath = objectKey;
             _context.VideoAssets.Add(video);
             await _context.SaveChangesAsync();
 
-            var uploadUrl = $"{scheme}://{host}/api/videos/upload-binary/{video.Id}";
+            var uploadUrl = await _storageService.GeneratePresignedUploadUrlAsync(folderName, fileName, _r2Settings.PresignedUrlExpiryMinutes, request.ContentType);
 
             return new
             {
                 uploadUrl,
-                videoId = video.Id
+                videoId = video.Id,
+                objectKey
             };
         }
 
@@ -225,6 +244,8 @@ namespace PostFlow.Services
                 ?? throw new NotFoundException($"Không tìm thấy video với ID {videoId}");
 
             var ext = ".mp4";
+            var now = DateTime.UtcNow;
+            var folderName = $"videos/{video.UserId}/{now:yyyy}/{now:MM}";
             var fileName = $"{videoId}{ext}";
 
             using var ms = new MemoryStream();
@@ -236,13 +257,18 @@ namespace PostFlow.Services
                 throw new BadRequestException("Không tìm thấy nội dung file upload.");
             }
 
-            var relativePath = await _storageService.SaveFileAsync(ms, $"uploaded-videos/{video.UserId}", fileName);
+            if (ms.Length > _r2Settings.MaxFileSizeBytes)
+            {
+                throw new PayloadTooLargeException($"Dung lượng file vượt quá giới hạn cho phép ({_r2Settings.MaxFileSizeMB}MB).");
+            }
 
-            video.LocalFilePath = relativePath;
+            var storagePath = await _storageService.SaveFileAsync(ms, folderName, fileName, "video/mp4");
+
+            video.LocalFilePath = storagePath;
             video.DurationSeconds = 30;
             await _context.SaveChangesAsync();
 
-            return new { message = "Upload successful", localPath = relativePath };
+            return new { message = "Upload successful", localPath = storagePath };
         }
 
         public async Task<object> UploadConfirmAsync(string userId, UploadConfirmRequest request)
@@ -253,7 +279,19 @@ namespace PostFlow.Services
 
             if (string.IsNullOrEmpty(video.LocalFilePath) || !await _storageService.FileExistsAsync(video.LocalFilePath))
             {
-                throw new NotFoundException("File upload không tìm thấy trên hệ thống lưu trữ, vui lòng upload lại.");
+                throw new NotFoundException("File upload không tìm thấy trên hệ thống lưu trữ Cloudflare R2, vui lòng upload lại.");
+            }
+
+            var actualSize = await _storageService.GetFileSizeAsync(video.LocalFilePath);
+            if (actualSize <= 0)
+            {
+                throw new BadRequestException("File upload trên Cloudflare R2 rỗng hoặc quá trình upload chưa hoàn tất.");
+            }
+
+            if (actualSize > _r2Settings.MaxFileSizeBytes)
+            {
+                await _storageService.DeleteFileAsync(video.LocalFilePath);
+                throw new PayloadTooLargeException($"Dung lượng file thực tế ({actualSize / (1024 * 1024)}MB) vượt quá giới hạn cho phép ({_r2Settings.MaxFileSizeMB}MB).");
             }
 
             video.Status = "Ready";

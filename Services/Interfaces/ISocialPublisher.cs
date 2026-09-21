@@ -5,11 +5,11 @@ using PostFlow.Models;
 
 namespace PostFlow.Services.Interfaces
 {
-    public interface IVideoUploader
+    public interface ISocialPublisher
     {
         PlatformType Platform { get; }
         
-        Task<UploadResult> UploadAsync(
+        Task<PublishResult> PublishAsync(
             string videoFilePath, 
             VideoMetadata metadata, 
             SocialAccount? account = null,

@@ -15,14 +15,14 @@ using PostFlow.Configuration;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 
-namespace PostFlow.Services.Uploaders
+namespace PostFlow.Services.Publishers
 {
-    public class YouTubeUploader : IVideoUploader
+    public class YouTubePublisher : ISocialPublisher
     {
         private readonly YouTubeSettings _settings;
-        private readonly ILogger<YouTubeUploader> _logger;
+        private readonly ILogger<YouTubePublisher> _logger;
 
-        public YouTubeUploader(IOptions<PlatformSettings> settings, ILogger<YouTubeUploader> logger)
+        public YouTubePublisher(IOptions<PlatformSettings> settings, ILogger<YouTubePublisher> logger)
         {
             _settings = settings.Value.YouTube;
             _logger = logger;
@@ -30,19 +30,19 @@ namespace PostFlow.Services.Uploaders
 
         public PlatformType Platform => PlatformType.YouTube;
 
-        public async Task<UploadResult> UploadAsync(
+        public async Task<PublishResult> PublishAsync(
             string videoFilePath, 
             VideoMetadata metadata, 
             SocialAccount? account = null,
             IProgress<int>? progress = null, 
             CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation("Bắt đầu upload video lên YouTube: {Path}", videoFilePath);
+            _logger.LogInformation("Bắt đầu xuất bản video lên YouTube: {Path}", videoFilePath);
 
             if (!File.Exists(videoFilePath))
             {
                 _logger.LogError("Không tìm thấy file video tại: {Path}", videoFilePath);
-                return UploadResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
+                return PublishResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
             }
 
             try
@@ -60,7 +60,7 @@ namespace PostFlow.Services.Uploaders
 
                 if (hasValidCredentials)
                 {
-                    _logger.LogInformation("Đang sử dụng Google API SDK để upload lên YouTube thực tế...");
+                    _logger.LogInformation("Đang sử dụng Google API SDK để xuất bản lên YouTube thực tế...");
 
                     var tokenResponse = new TokenResponse
                     {
@@ -111,8 +111,8 @@ namespace PostFlow.Services.Uploaders
                     using var fileStream = new FileStream(videoFilePath, FileMode.Open, FileAccess.Read);
                     var videosInsertRequest = youtubeService.Videos.Insert(youtubeVideo, "snippet,status", fileStream, "video/*");
 
-                    string? uploadedVideoId = null;
-                    var uploadCompletionSource = new TaskCompletionSource<UploadResult>();
+                    string? publishedVideoId = null;
+                    var publishCompletionSource = new TaskCompletionSource<PublishResult>();
 
                     videosInsertRequest.ProgressChanged += (IUploadProgress uploadProgress) =>
                     {
@@ -123,7 +123,7 @@ namespace PostFlow.Services.Uploaders
                                 {
                                     var percent = (int)(uploadProgress.BytesSent * 100 / fileStream.Length);
                                     progress?.Report(Math.Min(percent, 99));
-                                    _logger.LogDebug("YouTube Uploading: {Percent}% ({BytesSent}/{TotalBytes})", percent, uploadProgress.BytesSent, fileStream.Length);
+                                    _logger.LogDebug("YouTube Publishing: {Percent}% ({BytesSent}/{TotalBytes})", percent, uploadProgress.BytesSent, fileStream.Length);
                                 }
                                 break;
                             case Google.Apis.Upload.UploadStatus.Completed:
@@ -132,38 +132,38 @@ namespace PostFlow.Services.Uploaders
                                 break;
                             case Google.Apis.Upload.UploadStatus.Failed:
                                 _logger.LogError(uploadProgress.Exception, "YouTube upload failed: {Msg}", uploadProgress.Exception?.Message);
-                                uploadCompletionSource.TrySetResult(UploadResult.Failed($"YouTube SDK Error: {uploadProgress.Exception?.Message}"));
+                                publishCompletionSource.TrySetResult(PublishResult.Failed($"YouTube SDK Error: {uploadProgress.Exception?.Message}"));
                                 break;
                         }
                     };
 
                     videosInsertRequest.ResponseReceived += (Video video) =>
                     {
-                        uploadedVideoId = video.Id;
+                        publishedVideoId = video.Id;
                         string url = $"https://www.youtube.com/watch?v={video.Id}";
-                        _logger.LogInformation("YouTube upload thành công! Video ID: {Id}, URL: {Url}", video.Id, url);
-                        uploadCompletionSource.TrySetResult(UploadResult.Success(video.Id, url));
+                        _logger.LogInformation("YouTube xuất bản thành công! Video ID: {Id}, URL: {Url}", video.Id, url);
+                        publishCompletionSource.TrySetResult(PublishResult.Success(video.Id, url));
                     };
 
-                    using (cancellationToken.Register(() => uploadCompletionSource.TrySetCanceled()))
+                    using (cancellationToken.Register(() => publishCompletionSource.TrySetCanceled()))
                     {
                         var insertTask = videosInsertRequest.UploadAsync(cancellationToken);
-                        var completedTask = await Task.WhenAny(insertTask, uploadCompletionSource.Task);
+                        var completedTask = await Task.WhenAny(insertTask, publishCompletionSource.Task);
                         
-                        if (completedTask == uploadCompletionSource.Task)
+                        if (completedTask == publishCompletionSource.Task)
                         {
-                            return await uploadCompletionSource.Task;
+                            return await publishCompletionSource.Task;
                         }
 
                         var progressResult = await insertTask;
                         if (progressResult.Status == Google.Apis.Upload.UploadStatus.Failed)
                         {
-                            return UploadResult.Failed(progressResult.Exception?.Message ?? "Upload lên YouTube thất bại.");
+                            return PublishResult.Failed(progressResult.Exception?.Message ?? "Xuất bản lên YouTube thất bại.");
                         }
 
-                        if (!string.IsNullOrEmpty(uploadedVideoId))
+                        if (!string.IsNullOrEmpty(publishedVideoId))
                         {
-                            return UploadResult.Success(uploadedVideoId, $"https://www.youtube.com/watch?v={uploadedVideoId}");
+                            return PublishResult.Success(publishedVideoId, $"https://www.youtube.com/watch?v={publishedVideoId}");
                         }
                     }
                 }
@@ -176,26 +176,26 @@ namespace PostFlow.Services.Uploaders
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         progress?.Report(i);
-                        _logger.LogInformation("YouTube Mock Uploading: {Percent}%", i);
+                        _logger.LogInformation("YouTube Mock Publishing: {Percent}%", i);
                         await Task.Delay(400, cancellationToken);
                     }
                 }
 
                 string dummyVideoId = Guid.NewGuid().ToString("N").Substring(0, 11);
                 string videoUrl = $"https://www.youtube.com/watch?v={dummyVideoId}";
-                _logger.LogInformation("Upload YouTube thành công (Mock)! URL: {Url}", videoUrl);
+                _logger.LogInformation("Xuất bản YouTube thành công (Mock)! URL: {Url}", videoUrl);
 
-                return UploadResult.Success(dummyVideoId, videoUrl);
+                return PublishResult.Success(dummyVideoId, videoUrl);
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Tiến trình upload lên YouTube bị hủy bỏ.");
-                return UploadResult.Failed("Tiến trình upload bị hủy bỏ.");
+                _logger.LogWarning("Tiến trình xuất bản lên YouTube bị hủy bỏ.");
+                return PublishResult.Failed("Tiến trình xuất bản bị hủy bỏ.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi xảy ra khi upload lên YouTube.");
-                return UploadResult.Failed($"Lỗi hệ thống YouTube: {ex.Message}");
+                _logger.LogError(ex, "Lỗi xảy ra khi xuất bản lên YouTube.");
+                return PublishResult.Failed($"Lỗi hệ thống YouTube: {ex.Message}");
             }
         }
     }

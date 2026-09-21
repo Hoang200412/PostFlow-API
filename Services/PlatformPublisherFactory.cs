@@ -8,14 +8,14 @@ namespace PostFlow.Services
 {
     public class PlatformPublisherFactory : IPlatformPublisherFactory
     {
-        private readonly IEnumerable<IVideoUploader> _publishers;
+        private readonly IEnumerable<ISocialPublisher> _publishers;
 
-        public PlatformPublisherFactory(IEnumerable<IVideoUploader> publishers)
+        public PlatformPublisherFactory(IEnumerable<ISocialPublisher> publishers)
         {
             _publishers = publishers;
         }
 
-        public IVideoUploader GetPublisher(PlatformType platform)
+        public ISocialPublisher GetPublisher(PlatformType platform)
         {
             var publisher = _publishers.FirstOrDefault(u => u.Platform == platform);
             if (publisher == null)

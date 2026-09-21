@@ -15,19 +15,19 @@ using PostFlow.Data;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 
-namespace PostFlow.Services.Uploaders
+namespace PostFlow.Services.Publishers
 {
-    public class TikTokUploader : IVideoUploader
+    public class TikTokPublisher : ISocialPublisher
     {
         private readonly TikTokSettings _settings;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly ILogger<TikTokUploader> _logger;
+        private readonly ILogger<TikTokPublisher> _logger;
         private readonly AppDbContext _context;
 
-        public TikTokUploader(
+        public TikTokPublisher(
             IOptions<PlatformSettings> settings, 
             IHttpClientFactory httpClientFactory,
-            ILogger<TikTokUploader> logger,
+            ILogger<TikTokPublisher> logger,
             AppDbContext context)
         {
             _settings = settings.Value.TikTok;
@@ -97,19 +97,19 @@ namespace PostFlow.Services.Uploaders
             }
         }
 
-        public async Task<UploadResult> UploadAsync(
+        public async Task<PublishResult> PublishAsync(
             string videoFilePath, 
             VideoMetadata metadata, 
             SocialAccount? account = null,
             IProgress<int>? progress = null, 
             CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation("Bắt đầu upload video lên TikTok: {Path}", videoFilePath);
+            _logger.LogInformation("Bắt đầu xuất bản video lên TikTok: {Path}", videoFilePath);
 
             if (!File.Exists(videoFilePath))
             {
                 _logger.LogError("Không tìm thấy file video tại: {Path}", videoFilePath);
-                return UploadResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
+                return PublishResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
             }
 
             try
@@ -235,8 +235,8 @@ namespace PostFlow.Services.Uploaders
                     }
 
                     string tiktokUrl = $"https://www.tiktok.com/@creator/video/{publishId}";
-                    _logger.LogInformation("TikTok upload thành công! Publish ID: {PublishId}, URL: {Url}", publishId, tiktokUrl);
-                    return UploadResult.Success(publishId, tiktokUrl);
+                    _logger.LogInformation("TikTok xuất bản thành công! Publish ID: {PublishId}, URL: {Url}", publishId, tiktokUrl);
+                    return PublishResult.Success(publishId, tiktokUrl);
                 }
                 else
                 {
@@ -246,26 +246,26 @@ namespace PostFlow.Services.Uploaders
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         progress?.Report(i);
-                        _logger.LogInformation("TikTok Mock Uploading: {Percent}%", i);
+                        _logger.LogInformation("TikTok Mock Publishing: {Percent}%", i);
                         await Task.Delay(400, cancellationToken);
                     }
 
                     string dummyPublishId = "v2_publish_" + Guid.NewGuid().ToString("N").Substring(0, 16);
                     string videoUrl = $"https://www.tiktok.com/@creator/video/{Guid.NewGuid().ToString("N").Substring(0, 19)}";
-                    _logger.LogInformation("Upload TikTok thành công (Mock)! Publish ID: {PublishId}", dummyPublishId);
+                    _logger.LogInformation("Xuất bản TikTok thành công (Mock)! Publish ID: {PublishId}", dummyPublishId);
 
-                    return UploadResult.Success(dummyPublishId, videoUrl);
+                    return PublishResult.Success(dummyPublishId, videoUrl);
                 }
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Tiến trình upload lên TikTok bị hủy bỏ.");
-                return UploadResult.Failed("Tiến trình upload bị hủy bỏ.");
+                _logger.LogWarning("Tiến trình xuất bản lên TikTok bị hủy bỏ.");
+                return PublishResult.Failed("Tiến trình xuất bản bị hủy bỏ.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi xảy ra khi upload lên TikTok.");
-                return UploadResult.Failed($"Lỗi hệ thống TikTok: {ex.Message}");
+                _logger.LogError(ex, "Lỗi xảy ra khi xuất bản lên TikTok.");
+                return PublishResult.Failed($"Lỗi hệ thống TikTok: {ex.Message}");
             }
         }
     }

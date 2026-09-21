@@ -11,18 +11,18 @@ using PostFlow.Configuration;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 
-namespace PostFlow.Services.Uploaders
+namespace PostFlow.Services.Publishers
 {
-    public class FacebookReelsUploader : IVideoUploader
+    public class FacebookReelsPublisher : ISocialPublisher
     {
         private readonly FacebookReelsSettings _settings;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly ILogger<FacebookReelsUploader> _logger;
+        private readonly ILogger<FacebookReelsPublisher> _logger;
 
-        public FacebookReelsUploader(
+        public FacebookReelsPublisher(
             IOptions<PlatformSettings> settings, 
             IHttpClientFactory httpClientFactory,
-            ILogger<FacebookReelsUploader> logger)
+            ILogger<FacebookReelsPublisher> logger)
         {
             _settings = settings.Value.FacebookReels;
             _httpClientFactory = httpClientFactory;
@@ -31,19 +31,19 @@ namespace PostFlow.Services.Uploaders
 
         public PlatformType Platform => PlatformType.FacebookReels;
 
-        public async Task<UploadResult> UploadAsync(
+        public async Task<PublishResult> PublishAsync(
             string videoFilePath, 
             VideoMetadata metadata, 
             SocialAccount? account = null,
             IProgress<int>? progress = null, 
             CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation("Bắt đầu upload video lên Facebook Reels: {Path}", videoFilePath);
+            _logger.LogInformation("Bắt đầu xuất bản video lên Facebook Reels: {Path}", videoFilePath);
 
             if (!File.Exists(videoFilePath))
             {
                 _logger.LogError("Không tìm thấy file video tại: {Path}", videoFilePath);
-                return UploadResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
+                return PublishResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
             }
 
             try
@@ -63,7 +63,7 @@ namespace PostFlow.Services.Uploaders
 
                 if (hasValidCredentials)
                 {
-                    _logger.LogInformation("Đang sử dụng Meta Graph API để upload Facebook Reels thực tế...");
+                    _logger.LogInformation("Đang sử dụng Meta Graph API để xuất bản Facebook Reels thực tế...");
 
                     var client = _httpClientFactory.CreateClient();
                     var fileInfo = new FileInfo(videoFilePath);
@@ -127,9 +127,9 @@ namespace PostFlow.Services.Uploaders
 
                     progress?.Report(100);
                     string facebookVideoUrl = $"https://www.facebook.com/watch/reel/{videoId}";
-                    _logger.LogInformation("Upload Facebook Reels thành công! Video ID: {VideoId}, URL: {Url}", videoId, facebookVideoUrl);
+                    _logger.LogInformation("Xuất bản Facebook Reels thành công! Video ID: {VideoId}, URL: {Url}", videoId, facebookVideoUrl);
 
-                    return UploadResult.Success(videoId, facebookVideoUrl);
+                    return PublishResult.Success(videoId, facebookVideoUrl);
                 }
                 else
                 {
@@ -140,7 +140,7 @@ namespace PostFlow.Services.Uploaders
                         cancellationToken.ThrowIfCancellationRequested();
                         int currentProgress = Math.Min(i, 90);
                         progress?.Report(currentProgress);
-                        _logger.LogInformation("Facebook Reels Mock Uploading: {Percent}%", currentProgress);
+                        _logger.LogInformation("Facebook Reels Mock Publishing: {Percent}%", currentProgress);
                         await Task.Delay(300, cancellationToken);
                     }
 
@@ -149,20 +149,20 @@ namespace PostFlow.Services.Uploaders
 
                     string dummyFacebookVideoId = "fb_reel_" + Guid.NewGuid().ToString("N").Substring(0, 15);
                     string videoUrl = $"https://www.facebook.com/watch/reel/{dummyFacebookVideoId}";
-                    _logger.LogInformation("Upload Facebook Reels thành công (Mock)! Video ID: {VideoId}", dummyFacebookVideoId);
+                    _logger.LogInformation("Xuất bản Facebook Reels thành công (Mock)! Video ID: {VideoId}", dummyFacebookVideoId);
 
-                    return UploadResult.Success(dummyFacebookVideoId, videoUrl);
+                    return PublishResult.Success(dummyFacebookVideoId, videoUrl);
                 }
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Tiến trình upload lên Facebook Reels bị hủy bỏ.");
-                return UploadResult.Failed("Tiến trình upload bị hủy bỏ.");
+                _logger.LogWarning("Tiến trình xuất bản lên Facebook Reels bị hủy bỏ.");
+                return PublishResult.Failed("Tiến trình xuất bản bị hủy bỏ.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi xảy ra khi upload lên Facebook Reels.");
-                return UploadResult.Failed($"Lỗi hệ thống Facebook Reels: {ex.Message}");
+                _logger.LogError(ex, "Lỗi xảy ra khi xuất bản lên Facebook Reels.");
+                return PublishResult.Failed($"Lỗi hệ thống Facebook Reels: {ex.Message}");
             }
         }
     }

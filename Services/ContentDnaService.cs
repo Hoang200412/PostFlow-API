@@ -124,7 +124,7 @@ namespace PostFlow.Services
 
             var fileName = $"{Guid.NewGuid()}{ext}";
             using var stream = file.OpenReadStream();
-            var relativePath = await _storageService.SaveFileAsync(stream, $"avatars/{userId}", fileName);
+            var relativePath = await _storageService.SaveFileAsync(stream, $"avatars/{userId}", fileName, file.ContentType);
 
             return relativePath;
         }
