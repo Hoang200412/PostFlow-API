@@ -8,7 +8,8 @@ public static class HangfireExtensions
 {
     public static IServiceCollection AddHangfireConfiguration(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        var connectionString = configuration.GetConnectionString("SupabaseConnection")
+            ?? configuration.GetConnectionString("DefaultConnection");
 
         services.AddHangfire(config => config
             .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)

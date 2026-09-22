@@ -15,6 +15,7 @@ namespace PostFlow.Models.DTOs.Responses
         public string LocalFilePath { get; set; } = string.Empty;
         public int DurationSeconds { get; set; }
         public string Status { get; set; } = string.Empty;
+        public string? VideoUrl { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -33,6 +34,7 @@ namespace PostFlow.Models.DTOs.Responses
                 LocalFilePath = video.LocalFilePath,
                 DurationSeconds = video.DurationSeconds,
                 Status = video.Status,
+                VideoUrl = video.LocalFilePath,
                 CreatedAt = video.CreatedAt
             };
         }

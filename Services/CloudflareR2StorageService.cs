@@ -71,7 +71,9 @@ namespace PostFlow.Services
                 Key = objectKey,
                 InputStream = fileStream,
                 ContentType = contentType ?? "application/octet-stream",
-                DisablePayloadSigning = true
+                DisablePayloadSigning = true,
+                UseChunkEncoding = false,
+                AutoResetStreamPosition = true
             };
 
             await _s3Client.PutObjectAsync(putRequest);

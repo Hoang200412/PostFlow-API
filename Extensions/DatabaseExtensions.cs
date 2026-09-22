@@ -3,16 +3,20 @@ using Microsoft.AspNetCore.Identity;
 using PostFlow.Data;
 using PostFlow.Models;
 
+using Microsoft.EntityFrameworkCore.Diagnostics;
+
 namespace PostFlow.Extensions;
 
 public static class DatabaseExtensions
 {
     public static IServiceCollection AddDatabaseConfiguration(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        var connectionString = configuration.GetConnectionString("SupabaseConnection")
+            ?? configuration.GetConnectionString("DefaultConnection");
 
         services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(connectionString)
+                   .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
         return services;
     }
