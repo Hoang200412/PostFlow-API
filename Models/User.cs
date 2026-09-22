@@ -23,5 +23,6 @@ namespace PostFlow.Models
         public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
         public virtual ICollection<ContentDNA> ContentDNAs { get; set; } = new List<ContentDNA>();
         public virtual ICollection<ApiUsageLog> ApiUsageLogs { get; set; } = new List<ApiUsageLog>();
+        public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
     }
 }

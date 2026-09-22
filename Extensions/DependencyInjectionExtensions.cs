@@ -49,6 +49,7 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IContentDnaService, ContentDnaService>();
         services.AddScoped<IWebhookService, WebhookService>();
+        services.AddScoped<INotificationService, NotificationService>();
 
         return services;
     }

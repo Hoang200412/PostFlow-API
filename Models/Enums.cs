@@ -17,4 +17,13 @@ namespace PostFlow.Models
         DeadLetter,
         PostDeleted
     }
+
+    public enum NotificationType
+    {
+        Info,
+        Success,
+        Warning,
+        Error
+    }
 }
+

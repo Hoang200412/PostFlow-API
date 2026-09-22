@@ -23,6 +23,7 @@ namespace PostFlow.Services
         private readonly IPlatformPublisherFactory _publisherFactory;
         private readonly IStorageService _storageService;
         private readonly IBackgroundJobClient _backgroundJobClient;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<PublishingService> _logger;
 
         public PublishingService(
@@ -30,12 +31,14 @@ namespace PostFlow.Services
             IPlatformPublisherFactory publisherFactory,
             IStorageService storageService,
             IBackgroundJobClient backgroundJobClient,
+            INotificationService notificationService,
             ILogger<PublishingService> logger)
         {
             _context = context;
             _publisherFactory = publisherFactory;
             _storageService = storageService;
             _backgroundJobClient = backgroundJobClient;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -333,6 +336,37 @@ namespace PostFlow.Services
                     job.CompletedAt = DateTime.UtcNow;
                 }
                 await _context.SaveChangesAsync(CancellationToken.None);
+
+                // Gửi thông báo realtime qua NotificationService
+                try
+                {
+                    if (job.Status == UploadStatus.Completed)
+                    {
+                        var videoTitle = job.VideoAsset?.Title ?? "Video";
+                        await _notificationService.CreateNotificationAsync(
+                            job.UserId,
+                            "Đăng bài thành công",
+                            $"Video '{videoTitle}' đã được đăng thành công lên kênh {job.Platform}.",
+                            NotificationType.Success,
+                            "/schedule",
+                            new { jobId = job.Id, platform = job.Platform.ToString(), videoUrl = job.VideoUrl });
+                    }
+                    else if (job.Status == UploadStatus.DeadLetter || job.Status == UploadStatus.Failed)
+                    {
+                        var videoTitle = job.VideoAsset?.Title ?? "Video";
+                        await _notificationService.CreateNotificationAsync(
+                            job.UserId,
+                            "Đăng bài thất bại",
+                            $"Không thể đăng video '{videoTitle}' lên {job.Platform}: {job.ErrorMessage}",
+                            NotificationType.Error,
+                            "/schedule",
+                            new { jobId = job.Id, platform = job.Platform.ToString(), error = job.ErrorMessage });
+                    }
+                }
+                catch (Exception notifEx)
+                {
+                    _logger.LogWarning("Không thể tạo thông báo cho Job {JobId}: {Msg}", jobId, notifEx.Message);
+                }
             }
         }
     }

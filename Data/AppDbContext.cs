@@ -19,6 +19,7 @@ namespace PostFlow.Data
         public DbSet<ApiUsageLog> ApiUsageLogs { get; set; } = null!;
         public DbSet<Analytics> Analytics { get; set; } = null!;
         public DbSet<SystemSetting> SystemSettings { get; set; } = null!;
+        public DbSet<Notification> Notifications { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -149,6 +150,21 @@ namespace PostFlow.Data
             modelBuilder.Entity<SystemSetting>(entity =>
             {
                 entity.HasKey(e => e.Key);
+            });
+
+            // 10. Cấu hình bảng Notification
+            modelBuilder.Entity<Notification>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Type).HasConversion<string>();
+
+                entity.HasOne(e => e.User)
+                    .WithMany(u => u.Notifications)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.UserId, e.CreatedAt });
+                entity.HasIndex(e => new { e.UserId, e.IsRead });
             });
         }
     }

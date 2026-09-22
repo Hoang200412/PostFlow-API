@@ -123,6 +123,48 @@ namespace PostFlow.Migrations
                     b.ToTable("ContentDNAs");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.Notification", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ActionUrl")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
             modelBuilder.Entity("PostFlow.Models.RefreshToken", b =>
                 {
                     b.Property<string>("Id")
@@ -361,6 +403,9 @@ namespace PostFlow.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("UserId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -400,6 +445,17 @@ namespace PostFlow.Migrations
                 {
                     b.HasOne("PostFlow.Models.User", "User")
                         .WithMany("ContentDNAs")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.Notification", b =>
+                {
+                    b.HasOne("PostFlow.Models.User", "User")
+                        .WithMany("Notifications")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -494,6 +550,8 @@ namespace PostFlow.Migrations
                     b.Navigation("ApiUsageLogs");
 
                     b.Navigation("ContentDNAs");
+
+                    b.Navigation("Notifications");
 
                     b.Navigation("RefreshTokens");
 
