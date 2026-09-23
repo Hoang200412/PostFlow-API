@@ -13,10 +13,12 @@ namespace PostFlow.Controllers
     public class VideoController : ControllerBase
     {
         private readonly IVideoAssetService _videoAssetService;
+        private readonly IScriptGenerationService _scriptGenService;
 
-        public VideoController(IVideoAssetService videoAssetService)
+        public VideoController(IVideoAssetService videoAssetService, IScriptGenerationService scriptGenService)
         {
             _videoAssetService = videoAssetService;
+            _scriptGenService = scriptGenService;
         }
 
         private string? GetCurrentUserId() =>
@@ -99,6 +101,19 @@ namespace PostFlow.Controllers
 
             await _videoAssetService.BatchDeleteAsync(userId, request.Ids);
             return NoContent();
+        }
+
+        /// <summary>
+        /// API Sinh kịch bản video AI theo chủ đề và Content DNA (Structured JSON)
+        /// </summary>
+        [HttpPost("generate-script")]
+        public async Task<IActionResult> GenerateScript([FromBody] GenerateScriptRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var script = await _scriptGenService.GenerateScriptAsync(userId, request);
+            return Ok(script);
         }
 
         /// <summary>

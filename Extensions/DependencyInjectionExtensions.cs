@@ -31,8 +31,9 @@ public static class DependencyInjectionExtensions
         services.AddTransient<IPlatformPublisherFactory, PlatformPublisherFactory>();
         services.AddScoped<IPublishingService, PublishingService>();
 
-        // Register Cloudflare R2 Storage, Video Generation, and Background Jobs Services
+        // Register Cloudflare R2 Storage, Script/Video Generation, and Background Jobs Services
         services.AddScoped<IStorageService, CloudflareR2StorageService>();
+        services.AddScoped<IScriptGenerationService, ScriptGenerationService>();
         services.AddScoped<IVideoGenerationService, VideoGenerationService>();
         services.AddScoped<IBackgroundJobs, BackgroundJobs>();
 
