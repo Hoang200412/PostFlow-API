@@ -9,7 +9,7 @@ namespace PostFlow.Services.Interfaces
 {
     public interface IVideoAssetService
     {
-        Task<object> GetListAsync(string userId, int page, int limit);
+        Task<PagedResult<VideoAssetDto>> GetListAsync(string userId, int page, int limit);
         Task<VideoAssetDto> GetByIdAsync(string userId, string id);
         Task<VideoAssetDto> UpdateAsync(string userId, string id, VideoUpdateRequest request);
         Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags);

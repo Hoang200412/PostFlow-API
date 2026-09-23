@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PostFlow.Models.DTOs.Requests;
+using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Controllers
@@ -28,7 +29,7 @@ namespace PostFlow.Controllers
         /// API Lấy danh sách video tài sản của người dùng (Có phân trang)
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetList([FromQuery] int page = 1, [FromQuery] int limit = 10)
+        public async Task<ActionResult<PagedResult<VideoAssetDto>>> GetList([FromQuery] int page = 1, [FromQuery] int limit = 10)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();

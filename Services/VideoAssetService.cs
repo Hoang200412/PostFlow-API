@@ -39,9 +39,13 @@ namespace PostFlow.Services
             _r2Settings = r2Settings.Value;
         }
 
-        public async Task<object> GetListAsync(string userId, int page, int limit)
+        public async Task<PagedResult<VideoAssetDto>> GetListAsync(string userId, int page, int limit)
         {
+            page = page <= 0 ? 1 : page;
+            limit = limit <= 0 ? 10 : limit;
+
             var query = _context.VideoAssets
+                .AsNoTracking()
                 .Where(v => v.UserId == userId)
                 .OrderByDescending(v => v.CreatedAt);
 
@@ -51,13 +55,12 @@ namespace PostFlow.Services
                 .Take(limit)
                 .ToListAsync();
 
-            return new
-            {
-                items = items.Select(v => v.ToDto()),
+            return new PagedResult<VideoAssetDto>(
+                items.Select(v => v.ToDto()),
                 total,
                 page,
                 limit
-            };
+            );
         }
 
         public async Task<VideoAssetDto> GetByIdAsync(string userId, string id)
