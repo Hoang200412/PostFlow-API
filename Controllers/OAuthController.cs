@@ -42,10 +42,10 @@ namespace PostFlow.Controllers
             // Địa chỉ Frontend Callback mà OAuth Provider sẽ redirect về (FE nhận code & state)
             var frontendCallbackUrl = !string.IsNullOrWhiteSpace(redirectUri) 
                 ? redirectUri 
-                : (!string.IsNullOrWhiteSpace(returnUrl) ? returnUrl : "http://localhost:5173/oauth/callback");
+                : "http://localhost:5173/oauth/callback";
 
-            // Tạo State an toàn chứa UserId, Platform và Return URL
-            var state = _oauthService.GenerateState(userId, platform, returnUrl);
+            // Tạo State chứa Platform và Return URL
+            var state = _oauthService.GenerateState(platform, returnUrl);
 
             var authUrl = _oauthService.GetAuthorizationUrl(platform, frontendCallbackUrl, state);
             return Ok(new OAuthLoginUrlResponse
@@ -53,68 +53,6 @@ namespace PostFlow.Controllers
                 Platform = platform,
                 AuthUrl = authUrl
             });
-        }
-
-        /// <summary>
-        /// Endpoint nhận GET Callback trực tiếp từ OAuth Provider (Google, TikTok, Meta).
-        /// Backend tự động đổi token, lưu vào DB và 302 Redirect người dùng về giao diện Frontend.
-        /// </summary>
-        [AllowAnonymous]
-        [HttpGet("{platform}/callback")]
-        public async Task<IActionResult> HandleDirectCallback(
-            [FromRoute] PlatformType platform,
-            [FromQuery] string? code = null,
-            [FromQuery] string? state = null,
-            [FromQuery] string? error = null)
-        {
-            string userId = string.Empty;
-            string returnUrl = "http://localhost:5173/accounts";
-
-            if (!string.IsNullOrWhiteSpace(state))
-            {
-                try
-                {
-                    var decoded = _oauthService.DecodeState(state);
-                    userId = decoded.UserId;
-                    if (!string.IsNullOrWhiteSpace(decoded.ReturnUrl))
-                    {
-                        returnUrl = decoded.ReturnUrl;
-                    }
-                }
-                catch
-                {
-                    // Fallback nếu state không thể giải mã
-                }
-            }
-
-            var separator = returnUrl.Contains('?') ? "&" : "?";
-
-            if (!string.IsNullOrWhiteSpace(error))
-            {
-                return Redirect($"{returnUrl}{separator}oauth_status=error&message={Uri.EscapeDataString($"Xác thực bị từ chối: {error}")}");
-            }
-
-            if (string.IsNullOrWhiteSpace(code))
-            {
-                return Redirect($"{returnUrl}{separator}oauth_status=error&message={Uri.EscapeDataString("Không nhận được authorization code từ nhà cung cấp.")}");
-            }
-
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return Redirect($"{returnUrl}{separator}oauth_status=error&message={Uri.EscapeDataString("Không thể xác định phiên làm việc người dùng (state không hợp lệ).")}");
-            }
-
-            try
-            {
-                var backendCallbackUrl = $"{Request.Scheme}://{Request.Host}/api/oauth/{platform}/callback";
-                var account = await _oauthService.HandleCallbackAsync(userId, platform, code, backendCallbackUrl);
-
-                return Redirect($"{returnUrl}{separator}oauth_status=success&platform={platform}&accountName={Uri.EscapeDataString(account.AccountName ?? "")}");
-            }
-            catch (Exception ex)
-            {
-                return Redirect($"{returnUrl}{separator}oauth_status=error&message={Uri.EscapeDataString(ex.Message)}");
-            }
         }
 
         /// <summary>
@@ -129,7 +67,7 @@ namespace PostFlow.Controllers
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var account = await _oauthService.HandleCallbackAsync(userId, platform, request.Code, request.RedirectUri);
+            var account = await _oauthService.HandleCallbackAsync(userId, platform, request.Code, request.RedirectUri, request.CodeVerifier);
             return Ok(account);
         }
     }

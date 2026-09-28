@@ -16,6 +16,11 @@ namespace PostFlow.Models.DTOs.Responses
         public int ProgressPercentage { get; set; }
         public string? ErrorMessage { get; set; }
         public string? VideoUrl { get; set; }
+        public DateTime? ScheduledAt { get; set; }
+        public string? PlatformMetadataOverride { get; set; }
+        public string? PlatformPostId { get; set; }
+        public int RetryCount { get; set; }
+        public DateTime? NextRetryAt { get; set; }
         
         public DateTime CreatedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
@@ -42,6 +47,11 @@ namespace PostFlow.Models.DTOs.Responses
                 ProgressPercentage = job.ProgressPercentage,
                 ErrorMessage = job.ErrorMessage,
                 VideoUrl = job.VideoUrl,
+                ScheduledAt = job.ScheduledAt,
+                PlatformMetadataOverride = job.PlatformMetadataOverride,
+                PlatformPostId = job.PlatformPostId,
+                RetryCount = job.RetryCount,
+                NextRetryAt = job.NextRetryAt,
                 CreatedAt = job.CreatedAt,
                 CompletedAt = job.CompletedAt,
                 VideoTitle = job.VideoAsset?.Title,

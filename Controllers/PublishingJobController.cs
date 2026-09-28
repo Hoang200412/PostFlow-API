@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
+using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Controllers
@@ -67,7 +68,7 @@ namespace PostFlow.Controllers
                 request.ScheduledAt,
                 request.PlatformMetadataOverride);
 
-            return AcceptedAtAction(nameof(GetById), new { id = job.Id }, job);
+            return AcceptedAtAction(nameof(GetById), new { id = job.Id }, job.ToDto());
         }
 
         /// <summary>
@@ -80,7 +81,7 @@ namespace PostFlow.Controllers
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
             var job = await _publishingService.UpdateAsync(userId, id, request);
-            return Ok(job);
+            return Ok(job.ToDto());
         }
 
         /// <summary>

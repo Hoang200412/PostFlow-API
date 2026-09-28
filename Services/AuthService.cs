@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using PostFlow.Data;
+using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
@@ -109,6 +110,9 @@ namespace PostFlow.Services
                 throw new ArgumentException("Tài khoản này đang bị khóa.");
             }
 
+            // Dọn dẹp token hết hạn hoặc quá giới hạn phiên của user
+            await CleanupExpiredTokensAsync(user.Id);
+
             // Sinh Access Token mới và Refresh Token mới
             var token = GenerateJwtToken(user);
             var refreshToken = GenerateRefreshToken();
@@ -117,7 +121,8 @@ namespace PostFlow.Services
             {
                 UserId = user.Id,
                 TokenHash = ComputeHash(refreshToken),
-                ExpiresAt = DateTime.UtcNow.AddDays(7)
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                CreatedAt = DateTime.UtcNow
             };
             _context.RefreshTokens.Add(rt);
 
@@ -160,12 +165,16 @@ namespace PostFlow.Services
             // Xóa token cũ
             _context.RefreshTokens.Remove(existingToken);
 
+            // Dọn dẹp các token hết hạn khác (nếu có)
+            await CleanupExpiredTokensAsync(user.Id);
+
             // Thêm token mới
             var rt = new RefreshToken
             {
                 UserId = user.Id,
                 TokenHash = ComputeHash(newRefreshToken),
-                ExpiresAt = DateTime.UtcNow.AddDays(7)
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                CreatedAt = DateTime.UtcNow
             };
             _context.RefreshTokens.Add(rt);
 
@@ -180,6 +189,31 @@ namespace PostFlow.Services
                 Email = user.Email,
                 Role = user.Role
             };
+        }
+
+        private async Task CleanupExpiredTokensAsync(string userId)
+        {
+            // 1. Xóa các token đã hết hạn của user
+            var expiredTokens = await _context.RefreshTokens
+                .Where(t => t.UserId == userId && t.ExpiresAt <= DateTime.UtcNow)
+                .ToListAsync();
+
+            if (expiredTokens.Count > 0)
+            {
+                _context.RefreshTokens.RemoveRange(expiredTokens);
+            }
+
+            // 2. Giới hạn tối đa 5 phiên đăng nhập hoạt động song song cho 1 user
+            var activeTokens = await _context.RefreshTokens
+                .Where(t => t.UserId == userId && t.ExpiresAt > DateTime.UtcNow)
+                .OrderByDescending(t => t.CreatedAt)
+                .ToListAsync();
+
+            if (activeTokens.Count >= 5)
+            {
+                var extraTokens = activeTokens.Skip(4).ToList();
+                _context.RefreshTokens.RemoveRange(extraTokens);
+            }
         }
 
         public async Task<bool> RevokeTokenAsync(string userId)

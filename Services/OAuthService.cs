@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -36,59 +37,53 @@ namespace PostFlow.Services
             _logger = logger;
         }
 
-        public string GenerateState(string userId, PlatformType platform, string? returnUrl = null)
+        private static readonly JsonSerializerOptions JsonOptions = new()
         {
-            var payload = new
-            {
-                UserId = userId,
-                Platform = (int)platform,
-                ReturnUrl = returnUrl ?? string.Empty,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-            };
-            var json = JsonSerializer.Serialize(payload);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        private static string GenerateCodeVerifier()
+        {
+            var bytes = new byte[32];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(bytes);
+            return Convert.ToBase64String(bytes)
+                .Replace("+", "-")
+                .Replace("/", "_")
+                .TrimEnd('=');
         }
 
-        public (string UserId, PlatformType? Platform, string ReturnUrl) DecodeState(string state)
+        private static string GenerateCodeChallenge(string codeVerifier)
         {
-            if (string.IsNullOrWhiteSpace(state))
+            using var sha256 = SHA256.Create();
+            var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(codeVerifier));
+            return Convert.ToBase64String(hash)
+                .Replace("+", "-")
+                .Replace("/", "_")
+                .TrimEnd('=');
+        }
+
+        public string GenerateState(PlatformType platform, string? returnUrl = null)
+        {
+            string? codeVerifier = null;
+            string? codeChallenge = null;
+
+            if (platform == PlatformType.TikTok)
             {
-                throw new BadRequestException("State không hợp lệ hoặc bị thiếu.");
+                codeVerifier = GenerateCodeVerifier();
+                codeChallenge = GenerateCodeChallenge(codeVerifier);
             }
 
-            try
+            var payload = new
             {
-                string incoming = state.Replace('-', '+').Replace('_', '/');
-                switch (incoming.Length % 4)
-                {
-                    case 2: incoming += "=="; break;
-                    case 3: incoming += "="; break;
-                }
-                var bytes = Convert.FromBase64String(incoming);
-                var json = Encoding.UTF8.GetString(bytes);
-                using var doc = JsonDocument.Parse(json);
-                var userId = doc.RootElement.GetProperty("UserId").GetString() ?? "";
-                var returnUrl = doc.RootElement.TryGetProperty("ReturnUrl", out var rElem) ? rElem.GetString() ?? "" : "";
-                PlatformType? platform = null;
-                if (doc.RootElement.TryGetProperty("Platform", out var pElem))
-                {
-                    if (pElem.ValueKind == JsonValueKind.Number)
-                    {
-                        platform = (PlatformType)pElem.GetInt32();
-                    }
-                    else if (pElem.ValueKind == JsonValueKind.String && Enum.TryParse<PlatformType>(pElem.GetString(), true, out var parsed))
-                    {
-                        platform = parsed;
-                    }
-                }
-                return (userId, platform, returnUrl);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Không thể giải mã OAuth state: {Msg}. Fallback sử dụng chuỗi state thô làm UserId.", ex.Message);
-                return (state, null, "");
-            }
+                platform = (int)platform,
+                returnUrl = returnUrl ?? string.Empty,
+                codeVerifier,
+                codeChallenge
+            };
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
         }
 
         public string GetAuthorizationUrl(PlatformType platform, string redirectUri, string state)
@@ -106,7 +101,28 @@ namespace PostFlow.Services
                 case PlatformType.TikTok:
                     var ttClientKey = _settings.TikTok.ClientKey;
                     var ttScopes = Uri.EscapeDataString("user.info.basic,video.upload,video.publish");
-                    return $"https://www.tiktok.com/v2/auth/authorize/?client_key={ttClientKey}&scope={ttScopes}&response_type=code&redirect_uri={encodedRedirect}&state={encodedState}";
+
+                    string codeChallenge = "";
+                    try
+                    {
+                        var rawState = state.Replace('-', '+').Replace('_', '/');
+                        var pad = rawState.Length % 4;
+                        if (pad == 2) rawState += "==";
+                        else if (pad == 3) rawState += "=";
+                        var stateJson = Encoding.UTF8.GetString(Convert.FromBase64String(rawState));
+                        using var stateDoc = JsonDocument.Parse(stateJson);
+                        if (stateDoc.RootElement.TryGetProperty("codeChallenge", out var ccElem))
+                        {
+                            codeChallenge = ccElem.GetString() ?? "";
+                        }
+                    }
+                    catch { }
+
+                    var challengeParam = !string.IsNullOrEmpty(codeChallenge)
+                        ? $"&code_challenge={Uri.EscapeDataString(codeChallenge)}&code_challenge_method=S256"
+                        : "";
+
+                    return $"https://www.tiktok.com/v2/auth/authorize/?client_key={ttClientKey}&scope={ttScopes}&response_type=code&redirect_uri={encodedRedirect}&state={encodedState}{challengeParam}";
 
                 case PlatformType.FacebookReels:
                     var fbAppId = _settings.FacebookReels.AppId;
@@ -118,7 +134,7 @@ namespace PostFlow.Services
             }
         }
 
-        public async Task<SocialAccountDto> HandleCallbackAsync(string userId, PlatformType platform, string code, string redirectUri)
+        public async Task<SocialAccountDto> HandleCallbackAsync(string userId, PlatformType platform, string code, string redirectUri, string? codeVerifier = null)
         {
             if (string.IsNullOrWhiteSpace(code))
             {
@@ -202,6 +218,11 @@ namespace PostFlow.Services
                             { "grant_type", "authorization_code" },
                             { "redirect_uri", redirectUri }
                         };
+
+                        if (!string.IsNullOrEmpty(codeVerifier))
+                        {
+                            tokenRequestParams.Add("code_verifier", codeVerifier);
+                        }
 
                         var response = await client.PostAsync("https://open.tiktokapis.com/v2/oauth/token/", new FormUrlEncodedContent(tokenRequestParams));
                         var responseBody = await response.Content.ReadAsStringAsync();

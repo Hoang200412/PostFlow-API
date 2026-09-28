@@ -9,5 +9,7 @@ namespace PostFlow.Models.DTOs.Requests
 
         [Required(ErrorMessage = "RedirectUri không được để trống.")]
         public string RedirectUri { get; set; } = string.Empty;
+
+        public string? CodeVerifier { get; set; }
     }
 }
