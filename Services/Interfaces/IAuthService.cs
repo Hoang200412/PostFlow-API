@@ -8,7 +8,7 @@ namespace PostFlow.Services.Interfaces
     {
         Task<AuthResponseDto?> RegisterAsync(RegisterRequest request);
         Task<AuthResponseDto?> LoginAsync(LoginRequest request);
-        Task<AuthResponseDto?> RefreshTokenAsync(TokenRequestDto request);
+        Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken);
         Task<bool> RevokeTokenAsync(string userId);
         Task<bool> LogoutAsync(string refreshToken);
     }

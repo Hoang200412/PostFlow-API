@@ -71,26 +71,7 @@ namespace PostFlow.Controllers
                 throw new UnauthorizedException("Không tìm thấy Refresh Token trong Cookie. Vui lòng đăng nhập lại.");
             }
 
-            // 2. Đọc Access Token cũ từ Header Authorization (Bearer <token>)
-            string? accessToken = null;
-            var authHeader = Request.Headers["Authorization"].ToString();
-            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            {
-                accessToken = authHeader.Substring("Bearer ".Length).Trim();
-            }
-
-            if (string.IsNullOrEmpty(accessToken))
-            {
-                throw new UnauthorizedException("Không tìm thấy Access Token trong Header Authorization.");
-            }
-
-            var requestDto = new TokenRequestDto
-            {
-                AccessToken = accessToken,
-                RefreshToken = refreshToken
-            };
-
-            var response = await _authService.RefreshTokenAsync(requestDto);
+            var response = await _authService.RefreshTokenAsync(refreshToken);
             if (response == null)
             {
                 throw new BadRequestException("Làm mới token thất bại.");

@@ -134,39 +134,26 @@ namespace PostFlow.Services
             };
         }
 
-        public async Task<AuthResponseDto?> RefreshTokenAsync(TokenRequestDto request)
+        public async Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken)
         {
-            // 1. Trích xuất ClaimsPrincipal từ AccessToken đã hết hạn
-            var principal = GetPrincipalFromExpiredToken(request.AccessToken);
-            if (principal == null)
-            {
-                throw new ArgumentException("Access Token không hợp lệ.");
-            }
-
-            // 2. Tìm User ID từ claims
-            var userId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userId))
-            {
-                throw new ArgumentException("Access Token thiếu thông tin định danh.");
-            }
-
-            var user = await _context.Users.FindAsync(userId);
-            if (user == null)
-            {
-                throw new ArgumentException("Không tìm thấy người dùng.");
-            }
-
-            // 3. Kiểm tra tính hợp lệ của Refresh Token
-            var tokenHash = ComputeHash(request.RefreshToken);
+            // 1. Kiểm tra tính hợp lệ của Refresh Token từ Database
+            var tokenHash = ComputeHash(refreshToken);
             var existingToken = await _context.RefreshTokens
-                .FirstOrDefaultAsync(t => t.UserId == userId && t.TokenHash == tokenHash);
+                .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
 
             if (existingToken == null || existingToken.ExpiresAt <= DateTime.UtcNow)
             {
-                throw new ArgumentException("Refresh Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.");
+                throw new UnauthorizedException("Refresh Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.");
             }
 
-            // 4. Sinh Access Token mới và xoay vòng Refresh Token (Token Rotation)
+            // 2. Tìm User từ UserId gắn với Refresh Token
+            var user = await _context.Users.FindAsync(existingToken.UserId);
+            if (user == null)
+            {
+                throw new NotFoundException("Không tìm thấy thông tin người dùng.");
+            }
+
+            // 3. Sinh Access Token mới và xoay vòng Refresh Token (Token Rotation)
             var newAccessToken = GenerateJwtToken(user);
             var newRefreshToken = GenerateRefreshToken();
 
