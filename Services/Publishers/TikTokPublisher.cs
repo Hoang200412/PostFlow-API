@@ -127,8 +127,7 @@ namespace PostFlow.Services.Publishers
                     if (refreshed != null) accessToken = refreshed;
                 }
 
-                bool hasValidCredentials = !string.IsNullOrWhiteSpace(accessToken) && 
-                                           !accessToken.StartsWith("YOUR_");
+                bool hasValidCredentials = !string.IsNullOrWhiteSpace(accessToken);
 
                 if (hasValidCredentials)
                 {

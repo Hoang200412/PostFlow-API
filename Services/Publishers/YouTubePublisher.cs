@@ -52,11 +52,8 @@ namespace PostFlow.Services.Publishers
                 var refreshToken = account?.RefreshToken ?? _settings.RefreshToken;
 
                 bool hasValidCredentials = !string.IsNullOrWhiteSpace(clientId) && 
-                                           !clientId.StartsWith("YOUR_") &&
                                            !string.IsNullOrWhiteSpace(clientSecret) &&
-                                           !clientSecret.StartsWith("YOUR_") &&
                                            !string.IsNullOrWhiteSpace(refreshToken) &&
-                                           !refreshToken.StartsWith("YOUR_");
 
                 if (hasValidCredentials)
                 {
