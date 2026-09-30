@@ -1,5 +1,6 @@
 using Hangfire;
 using Serilog;
+using Microsoft.AspNetCore.Mvc;
 using PostFlow.Extensions;
 using PostFlow.Middleware;
 
@@ -12,8 +13,7 @@ Log.Logger = new LoggerConfiguration()
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 
-try
-{
+try {
     Log.Information("Khởi động ứng dụng PostFlow API...");
 
     var builder = WebApplication.CreateBuilder(args);
@@ -22,7 +22,31 @@ try
     builder.Host.UseSerilog();
 
     // 1. Đăng ký Controllers & Các dịch vụ mở rộng
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+        {
+            options.InvalidModelStateResponseFactory = context =>
+            {
+                var errorMessages = context.ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .Where(m => !string.IsNullOrWhiteSpace(m))
+                    .ToList();
+
+                var message = errorMessages.Count > 0
+                    ? string.Join(", ", errorMessages)
+                    : "Dữ liệu gửi lên không hợp lệ.";
+
+                var responsePayload = new
+                {
+                    statusCode = StatusCodes.Status400BadRequest,
+                    message = message,
+                    timestamp = DateTime.UtcNow
+                };
+
+                return new BadRequestObjectResult(responsePayload);
+            };
+        });
     builder.Services.AddCorsPolicy();
     builder.Services.AddDatabaseConfiguration(builder.Configuration);
     builder.Services.AddHangfireConfiguration(builder.Configuration);

@@ -21,6 +21,7 @@ public static class DependencyInjectionExtensions
         // Bind Platform API & Storage Settings from appsettings.json
         services.Configure<PlatformSettings>(configuration.GetSection("PlatformSettings"));
         services.Configure<CloudflareR2Settings>(configuration.GetSection("CloudflareR2"));
+        services.Configure<AISettings>(configuration.GetSection("AI"));
 
         // Register Platform-specific publishers
         services.AddTransient<ISocialPublisher, YouTubePublisher>();

@@ -53,7 +53,7 @@ namespace PostFlow.Services.Publishers
 
                 bool hasValidCredentials = !string.IsNullOrWhiteSpace(clientId) && 
                                            !string.IsNullOrWhiteSpace(clientSecret) &&
-                                           !string.IsNullOrWhiteSpace(refreshToken) &&
+                                           !string.IsNullOrWhiteSpace(refreshToken);
 
                 if (hasValidCredentials)
                 {
