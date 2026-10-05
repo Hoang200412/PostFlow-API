@@ -65,7 +65,7 @@ namespace PostFlow.Services
                 : "30-45 giây";
 
             // 1. Thử sinh qua OpenRouter API
-            var openRouterKey = !string.IsNullOrWhiteSpace(_aiSettings.OpenRouter.ApiKey)
+            var openRouterKey = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.ApiKey)
                 ? _aiSettings.OpenRouter.ApiKey
                 : Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
 
@@ -87,7 +87,7 @@ namespace PostFlow.Services
             }
 
             // 2. Fallback sang Google Gemini Direct API
-            var geminiKey = !string.IsNullOrWhiteSpace(_aiSettings.GeminiApiKey)
+            var geminiKey = !string.IsNullOrWhiteSpace(_aiSettings?.GeminiApiKey)
                 ? _aiSettings.GeminiApiKey
                 : Environment.GetEnvironmentVariable("GEMINI_API_KEY");
 
@@ -122,11 +122,11 @@ namespace PostFlow.Services
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(60);
 
-            var url = !string.IsNullOrWhiteSpace(_aiSettings.OpenRouter.BaseUrl)
+            var url = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.BaseUrl)
                 ? _aiSettings.OpenRouter.BaseUrl
                 : "https://openrouter.ai/api/v1/chat/completions";
 
-            var models = _aiSettings.OpenRouter.Models.Count > 0
+            var models = _aiSettings?.OpenRouter?.Models != null && _aiSettings.OpenRouter.Models.Count > 0
                 ? _aiSettings.OpenRouter.Models
                 : new List<string> { "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free" };
 
