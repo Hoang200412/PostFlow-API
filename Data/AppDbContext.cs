@@ -20,6 +20,7 @@ namespace PostFlow.Data
         public DbSet<Analytics> Analytics { get; set; } = null!;
         public DbSet<SystemSetting> SystemSettings { get; set; } = null!;
         public DbSet<Notification> Notifications { get; set; } = null!;
+        public DbSet<VideoCreationSession> VideoCreationSessions { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -165,6 +166,23 @@ namespace PostFlow.Data
 
                 entity.HasIndex(e => new { e.UserId, e.CreatedAt });
                 entity.HasIndex(e => new { e.UserId, e.IsRead });
+            });
+
+            // 11. Cấu hình bảng VideoCreationSession
+            modelBuilder.Entity<VideoCreationSession>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.UserId).IsUnique();
+
+                entity.HasOne(e => e.User)
+                    .WithOne(u => u.VideoCreationSession)
+                    .HasForeignKey<VideoCreationSession>(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.CreatedVideo)
+                    .WithMany()
+                    .HasForeignKey(e => e.CreatedVideoId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
         }
     }

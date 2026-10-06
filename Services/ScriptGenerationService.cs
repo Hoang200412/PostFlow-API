@@ -126,15 +126,15 @@ namespace PostFlow.Services
                 ? _aiSettings.OpenRouter.BaseUrl
                 : "https://openrouter.ai/api/v1/chat/completions";
 
-            var models = _aiSettings?.OpenRouter?.Models != null && _aiSettings.OpenRouter.Models.Count > 0
-                ? _aiSettings.OpenRouter.Models
-                : new List<string> { "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free" };
+            var models = "openrouter/free";
+
+            // var primaryModel = models.FirstOrDefault() ?? "openrouter/free";
 
             var promptText = BuildScriptPrompt(topic, tone, targetDuration, customPrompt);
 
             var requestBody = new
             {
-                models = models,
+                model = models,
                 messages = new object[]
                 {
                     new { role = "system", content = "Bạn là AI chuyên gia sáng tạo kịch bản video ngắn triệu view. Luôn phản hồi JSON thuần túy theo đúng schema được yêu cầu." },

@@ -48,6 +48,7 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
         services.AddScoped<IVideoAssetService, VideoAssetService>();
+        services.AddScoped<IVideoCreationSessionService, VideoCreationSessionService>();
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IContentDnaService, ContentDnaService>();
         services.AddScoped<IWebhookService, WebhookService>();

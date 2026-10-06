@@ -15,15 +15,59 @@ namespace PostFlow.Controllers
     {
         private readonly IVideoAssetService _videoAssetService;
         private readonly IScriptGenerationService _scriptGenService;
+        private readonly IVideoCreationSessionService _sessionService;
 
-        public VideoController(IVideoAssetService videoAssetService, IScriptGenerationService scriptGenService)
+        public VideoController(
+            IVideoAssetService videoAssetService, 
+            IScriptGenerationService scriptGenService,
+            IVideoCreationSessionService sessionService)
         {
             _videoAssetService = videoAssetService;
             _scriptGenService = scriptGenService;
+            _sessionService = sessionService;
         }
 
         private string? GetCurrentUserId() =>
             User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        /// <summary>
+        /// API Lấy phiên tạo video dở gần nhất của người dùng
+        /// </summary>
+        [HttpGet("creation-session")]
+        public async Task<IActionResult> GetCreationSession()
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var session = await _sessionService.GetSessionAsync(userId);
+            return Ok(new { hasActiveSession = session != null, session });
+        }
+
+        /// <summary>
+        /// API Lưu hoặc cập nhật phiên tạo video của người dùng
+        /// </summary>
+        [HttpPut("creation-session")]
+        public async Task<IActionResult> UpsertCreationSession([FromBody] UpsertCreationSessionRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var session = await _sessionService.UpsertSessionAsync(userId, request);
+            return Ok(session);
+        }
+
+        /// <summary>
+        /// API Xóa phiên tạo video của người dùng (khi reset/tạo mới)
+        /// </summary>
+        [HttpDelete("creation-session")]
+        public async Task<IActionResult> DeleteCreationSession()
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            await _sessionService.DeleteSessionAsync(userId);
+            return NoContent();
+        }
 
         /// <summary>
         /// API Lấy danh sách video tài sản của người dùng (Có phân trang)

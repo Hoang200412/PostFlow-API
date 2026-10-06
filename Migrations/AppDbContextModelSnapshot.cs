@@ -419,6 +419,57 @@ namespace PostFlow.Migrations
                     b.ToTable("VideoAssets");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.VideoCreationSession", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CreatedVideoId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdeaPrompt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ScriptJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SelectedDuration")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SelectedStructure")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SelectedTone")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SelectedVoice")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Step")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedVideoId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("VideoCreationSessions");
+                });
+
             modelBuilder.Entity("PostFlow.Models.Analytics", b =>
                 {
                     b.HasOne("PostFlow.Models.UploadJob", "UploadJob")
@@ -530,6 +581,24 @@ namespace PostFlow.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.VideoCreationSession", b =>
+                {
+                    b.HasOne("PostFlow.Models.VideoAsset", "CreatedVideo")
+                        .WithMany()
+                        .HasForeignKey("CreatedVideoId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("PostFlow.Models.User", "User")
+                        .WithOne("VideoCreationSession")
+                        .HasForeignKey("PostFlow.Models.VideoCreationSession", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatedVideo");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("PostFlow.Models.ContentDNA", b =>
                 {
                     b.Navigation("VideoAssets");
@@ -560,6 +629,8 @@ namespace PostFlow.Migrations
                     b.Navigation("UploadJobs");
 
                     b.Navigation("VideoAssets");
+
+                    b.Navigation("VideoCreationSession");
                 });
 
             modelBuilder.Entity("PostFlow.Models.VideoAsset", b =>
