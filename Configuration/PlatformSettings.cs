@@ -10,6 +10,7 @@ namespace PostFlow.Configuration
     public class YouTubeSettings
     {
         public string ApplicationName { get; set; } = "PostFlow";
+        public string ApiKey { get; set; } = string.Empty;
         public string ClientId { get; set; } = string.Empty;
         public string ClientSecret { get; set; } = string.Empty;
         public string RefreshToken { get; set; } = string.Empty;

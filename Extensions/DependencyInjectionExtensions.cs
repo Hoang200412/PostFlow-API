@@ -38,8 +38,9 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IVideoGenerationService, VideoGenerationService>();
         services.AddScoped<IBackgroundJobs, BackgroundJobs>();
 
-        // Register HttpClient
+        // Register HttpClient & MemoryCache
         services.AddHttpClient();
+        services.AddMemoryCache();
 
         // Register Password Hasher & Business Services
         services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
@@ -53,6 +54,7 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IContentDnaService, ContentDnaService>();
         services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<ITrendService, TrendService>();
 
         return services;
     }

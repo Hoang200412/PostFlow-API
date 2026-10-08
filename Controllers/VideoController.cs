@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -16,15 +19,18 @@ namespace PostFlow.Controllers
         private readonly IVideoAssetService _videoAssetService;
         private readonly IScriptGenerationService _scriptGenService;
         private readonly IVideoCreationSessionService _sessionService;
+        private readonly IStorageService _storageService;
 
         public VideoController(
             IVideoAssetService videoAssetService, 
             IScriptGenerationService scriptGenService,
-            IVideoCreationSessionService sessionService)
+            IVideoCreationSessionService sessionService,
+            IStorageService storageService)
         {
             _videoAssetService = videoAssetService;
             _scriptGenService = scriptGenService;
             _sessionService = sessionService;
+            _storageService = storageService;
         }
 
         private string? GetCurrentUserId() =>
@@ -120,6 +126,44 @@ namespace PostFlow.Controllers
 
             var video = await _videoAssetService.UploadVideoAsync(userId, request.File, request.Title, request.Description, request.GetTagList());
             return Ok(video);
+        }
+
+        /// <summary>
+        /// API Tải lên hình ảnh mẫu hoặc hình ảnh phân cảnh (Sample / Scene Image)
+        /// </summary>
+        [HttpPost("upload-image")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadImage([FromForm] ImageUploadRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            if (request.File == null || request.File.Length == 0)
+            {
+                return BadRequest(new { message = "Vui lòng chọn file hình ảnh hợp lệ." });
+            }
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
+            var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(extension))
+            {
+                return BadRequest(new { message = "Chỉ chấp nhận định dạng hình ảnh (.jpg, .jpeg, .png, .webp, .gif)." });
+            }
+
+            var folderName = $"images/{userId}/{DateTime.UtcNow:yyyy}/{DateTime.UtcNow:MM}";
+            var fileName = $"{Guid.NewGuid():N}{extension}";
+
+            using var stream = request.File.OpenReadStream();
+            var relativePath = await _storageService.SaveFileAsync(stream, folderName, fileName, request.File.ContentType);
+            var publicUrl = await _storageService.GeneratePresignedDownloadUrlAsync(relativePath, 24 * 365);
+
+            return Ok(new
+            {
+                url = publicUrl,
+                path = relativePath,
+                fileName = request.File.FileName,
+                size = request.File.Length
+            });
         }
 
         /// <summary>

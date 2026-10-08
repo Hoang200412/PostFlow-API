@@ -186,6 +186,7 @@ namespace PostFlow.Services
             await _context.SaveChangesAsync();
         }
 
+        [AutomaticRetry(Attempts = 0)]
         public async Task ProcessJobAsync(string jobId, CancellationToken cancellationToken)
         {
             var job = await _context.UploadJobs
@@ -199,9 +200,32 @@ namespace PostFlow.Services
                 return;
             }
 
+            // 1. Kiểm tra tính Idempotent: Nếu đã hoàn thành hoặc đã có PlatformPostId/VideoUrl thì tuyệt đối không đăng lại!
+            if (job.Status == UploadStatus.Completed || !string.IsNullOrEmpty(job.PlatformPostId) || !string.IsNullOrEmpty(job.VideoUrl))
+            {
+                _logger.LogInformation("Job {JobId} đã được xuất bản hoàn tất trước đó (Status={Status}, PostId={PostId}), bỏ qua không đăng lại.",
+                    jobId, job.Status, job.PlatformPostId);
+                return;
+            }
+
+            // 2. Kiểm tra nếu job đã bị hủy
             if (job.Status == UploadStatus.Cancelled)
             {
                 _logger.LogWarning("Job {JobId} đã bị hủy, dừng xử lý.", jobId);
+                return;
+            }
+
+            // 3. Kiểm tra nếu job đang được worker khác xử lý
+            if (job.Status == UploadStatus.Processing)
+            {
+                _logger.LogWarning("Job {JobId} đang được xử lý bởi tiến trình khác, bỏ qua để tránh trùng lặp.", jobId);
+                return;
+            }
+
+            // 4. Kiểm tra thời gian hẹn giờ (nếu job bị trigger sớm hơn lịch dự kiến do đổi lịch trước đó)
+            if (job.ScheduledAt.HasValue && job.ScheduledAt.Value > DateTime.UtcNow.AddSeconds(30))
+            {
+                _logger.LogInformation("Job {JobId} chưa đến thời gian hẹn giờ ({ScheduledAt}), bỏ qua trigger sớm.", jobId, job.ScheduledAt.Value);
                 return;
             }
 
@@ -290,6 +314,9 @@ namespace PostFlow.Services
                         job.VideoUrl = result.VideoUrl;
                         job.PlatformPostId = result.VideoId ?? Guid.NewGuid().ToString().Substring(0, 8);
                         job.ProgressPercentage = 100;
+                        job.CompletedAt = DateTime.UtcNow;
+                        job.ErrorMessage = null;
+                        await _context.SaveChangesAsync(CancellationToken.None);
                         _logger.LogInformation("Job {JobId} xuất bản thành công! URL: {Url}", jobId, result.VideoUrl);
                     }
                     else
@@ -307,12 +334,19 @@ namespace PostFlow.Services
             }
             catch (Exception ex)
             {
+                // Nếu trước đó đã kịp upload thành công rồi (có PlatformPostId hoặc Status = Completed) thì không retry đăng lại
+                if (job.Status == UploadStatus.Completed || !string.IsNullOrEmpty(job.PlatformPostId))
+                {
+                    _logger.LogWarning(ex, "Lỗi sau khi đã đăng bài thành công cho Job {JobId}. Không retry đăng lại.", jobId);
+                    return;
+                }
+
                 _logger.LogError(ex, "Lỗi xảy ra trong tiến trình xuất bản Job {JobId}", jobId);
 
-                if (job.RetryCount < 5)
+                if (job.RetryCount < 3)
                 {
                     job.RetryCount++;
-                    double seconds = Math.Min(Math.Pow(2, job.RetryCount) * 5, 3600);
+                    double seconds = Math.Min(Math.Pow(2, job.RetryCount) * 10, 3600);
                     job.NextRetryAt = DateTime.UtcNow.AddSeconds(seconds);
                     job.Status = UploadStatus.Pending;
                     job.ErrorMessage = $"Lỗi: {ex.Message}. Sẽ retry lần {job.RetryCount} sau {seconds} giây.";
