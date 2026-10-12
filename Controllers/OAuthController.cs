@@ -2,6 +2,7 @@ using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using PostFlow.Exceptions;
 using PostFlow.Models;
@@ -20,6 +21,48 @@ namespace PostFlow.Controllers
         public OAuthController(IOAuthService oauthService)
         {
             _oauthService = oauthService;
+        }
+
+        [AllowAnonymous]
+        [HttpGet("social/{provider}/login-url")]
+        public ActionResult<OAuthLoginUrlResponse> GetSocialLoginUrl(
+            [FromRoute] string provider,
+            [FromQuery] string redirectUri)
+        {
+            if (string.IsNullOrWhiteSpace(redirectUri))
+            {
+                return BadRequest("Redirect URI không được để trống.");
+            }
+
+            var authUrl = _oauthService.GetSocialLoginAuthorizationUrl(provider, redirectUri, out _);
+            return Ok(new { provider, authUrl });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("social/{provider}/callback")]
+        public async Task<ActionResult<AuthResponseDto>> HandleSocialLoginCallback(
+            [FromRoute] string provider,
+            [FromBody] SocialLoginCallbackRequest request)
+        {
+            var response = await _oauthService.HandleSocialLoginCallbackAsync(
+                provider,
+                request.Code,
+                request.RedirectUri,
+                request.State);
+
+            SetRefreshTokenCookie(response.RefreshToken);
+            return Ok(response);
+        }
+
+        private void SetRefreshTokenCookie(string refreshToken)
+        {
+            Response.Cookies.Append("refreshToken", refreshToken, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                Expires = DateTime.UtcNow.AddDays(7)
+            });
         }
 
         private string? GetCurrentUserId() =>

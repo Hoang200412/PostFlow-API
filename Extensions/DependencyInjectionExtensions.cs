@@ -55,6 +55,8 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<ITrendService, TrendService>();
+        services.AddScoped<IPostService, PostService>();
+        services.AddScoped<IImageGenerationService, ImageGenerationService>();
 
         return services;
     }

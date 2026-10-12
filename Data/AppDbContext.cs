@@ -21,6 +21,7 @@ namespace PostFlow.Data
         public DbSet<SystemSetting> SystemSettings { get; set; } = null!;
         public DbSet<Notification> Notifications { get; set; } = null!;
         public DbSet<VideoCreationSession> VideoCreationSessions { get; set; } = null!;
+        public DbSet<Post> Posts { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -183,6 +184,26 @@ namespace PostFlow.Data
                     .WithMany()
                     .HasForeignKey(e => e.CreatedVideoId)
                     .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<Post>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Hashtags)
+                    .HasColumnType("jsonb")
+                    .HasConversion(
+                        value => JsonSerializer.Serialize(value, (JsonSerializerOptions)null!),
+                        value => JsonSerializer.Deserialize<List<string>>(value, (JsonSerializerOptions)null!) ?? new List<string>());
+                entity.Property(e => e.Keywords)
+                    .HasColumnType("jsonb")
+                    .HasConversion(
+                        value => JsonSerializer.Serialize(value, (JsonSerializerOptions)null!),
+                        value => JsonSerializer.Deserialize<List<string>>(value, (JsonSerializerOptions)null!) ?? new List<string>());
+                entity.HasOne(e => e.User)
+                    .WithMany()
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasIndex(e => new { e.UserId, e.CreatedAt });
             });
         }
     }

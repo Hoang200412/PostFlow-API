@@ -11,7 +11,14 @@ namespace PostFlow.Services
 {
     public interface IBackgroundJobs
     {
-        Task RenderVideoJobAsync(string videoId, string topic, string contentDnaId, string[] channelIds, string? scheduledAtIsoStr);
+        Task RenderVideoJobAsync(
+            string videoId,
+            string topic,
+            string? contentDnaId,
+            string scriptJson,
+            string? voice,
+            string[] channelIds,
+            string? scheduledAtIsoStr);
         Task GatherAnalyticsJobAsync();
     }
 
@@ -34,7 +41,14 @@ namespace PostFlow.Services
             _logger = logger;
         }
 
-        public async Task RenderVideoJobAsync(string videoId, string topic, string contentDnaId, string[] channelIds, string? scheduledAtIsoStr)
+        public async Task RenderVideoJobAsync(
+            string videoId,
+            string topic,
+            string? contentDnaId,
+            string scriptJson,
+            string? voice,
+            string[] channelIds,
+            string? scheduledAtIsoStr)
         {
             var video = await _context.VideoAssets.FindAsync(videoId);
             if (video == null)
@@ -49,7 +63,12 @@ namespace PostFlow.Services
                 video.Status = "Rendering";
                 await _context.SaveChangesAsync();
 
-                var relativePath = await _videoGenService.GenerateVideoAsync(video.UserId, topic, contentDnaId);
+                var relativePath = await _videoGenService.GenerateVideoAsync(
+                    video.UserId,
+                    topic,
+                    contentDnaId,
+                    scriptJson,
+                    voice);
 
                 video.LocalFilePath = relativePath;
                 video.Status = "Ready";

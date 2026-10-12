@@ -24,12 +24,20 @@ public class VideoGenerationService : IVideoGenerationService
     /// <summary>
     /// Xử lý render và xuất video hoàn chỉnh đẩy lên Cloudflare R2
     /// </summary>
-    public async Task<string> GenerateVideoAsync(string userId, string topic, string contentDnaId)
+    public async Task<string> GenerateVideoAsync(
+        string userId,
+        string topic,
+        string? contentDnaId,
+        string scriptJson,
+        string? voice)
     {
-        var dna = await _context.ContentDNAs.FindAsync(contentDnaId);
-        if (dna == null)
+        if (!string.IsNullOrWhiteSpace(contentDnaId))
         {
-            throw new ArgumentException("Không tìm thấy cấu hình Content DNA.");
+            var dna = await _context.ContentDNAs.FindAsync(contentDnaId);
+            if (dna == null)
+            {
+                throw new ArgumentException("Không tìm thấy cấu hình Content DNA.");
+            }
         }
 
         // Pipeline xử lý:

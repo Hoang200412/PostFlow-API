@@ -139,6 +139,114 @@ namespace PostFlow.Services
             };
         }
 
+        public async Task<AuthResponseDto> LoginExternalAsync(ExternalIdentity identity)
+        {
+            if (string.IsNullOrWhiteSpace(identity.ProviderUserId))
+            {
+                throw new ArgumentException("Không nhận được định danh tài khoản mạng xã hội.");
+            }
+
+            var externalAccount = await _context.SocialAccounts
+                .Include(account => account.User)
+                .FirstOrDefaultAsync(account =>
+                    account.Platform == identity.Platform &&
+                    account.ChannelIdOrPageId == identity.ProviderUserId);
+
+            var user = externalAccount?.User;
+            if (user == null && !string.IsNullOrWhiteSpace(identity.Email))
+            {
+                user = await _context.Users.FirstOrDefaultAsync(candidate =>
+                    candidate.Email.ToLower() == identity.Email.ToLower());
+            }
+
+            if (user == null)
+            {
+                var email = string.IsNullOrWhiteSpace(identity.Email)
+                    ? $"{identity.Provider}_{identity.ProviderUserId}@oauth.postflow.local"
+                    : identity.Email.Trim().ToLowerInvariant();
+                var username = await BuildExternalUsernameAsync(identity.DisplayName, identity.ProviderUserId);
+
+                user = new User
+                {
+                    Username = username,
+                    Email = email,
+                    PasswordHash = null,
+                    Role = "User",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Users.Add(user);
+            }
+
+            if (!user.IsActive)
+            {
+                throw new ArgumentException("Tài khoản này đang bị khóa.");
+            }
+
+            if (externalAccount == null)
+            {
+                externalAccount = new SocialAccount
+                {
+                    UserId = user.Id,
+                    Platform = identity.Platform,
+                    ChannelIdOrPageId = identity.ProviderUserId,
+                    AccountName = string.IsNullOrWhiteSpace(identity.DisplayName)
+                        ? identity.Provider
+                        : identity.DisplayName,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.SocialAccounts.Add(externalAccount);
+            }
+
+            externalAccount.UserId = user.Id;
+            externalAccount.AccountName = string.IsNullOrWhiteSpace(identity.DisplayName)
+                ? externalAccount.AccountName
+                : identity.DisplayName;
+            externalAccount.AccessToken = identity.AccessToken;
+            externalAccount.RefreshToken = identity.RefreshToken;
+            externalAccount.TokenExpiresAt = identity.TokenExpiresAt;
+            externalAccount.IsActive = true;
+
+            await CleanupExpiredTokensAsync(user.Id);
+            var refreshToken = GenerateRefreshToken();
+            _context.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = ComputeHash(refreshToken),
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _context.SaveChangesAsync();
+
+            return new AuthResponseDto
+            {
+                Token = GenerateJwtToken(user),
+                RefreshToken = refreshToken,
+                UserId = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                Role = user.Role
+            };
+        }
+
+        private async Task<string> BuildExternalUsernameAsync(string displayName, string providerUserId)
+        {
+            var normalized = new string((displayName ?? string.Empty)
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+            var baseUsername = string.IsNullOrWhiteSpace(normalized) ? "user" : normalized.ToLowerInvariant();
+            var username = baseUsername;
+            var suffix = 1;
+
+            while (await _context.Users.AnyAsync(user => user.Username.ToLower() == username.ToLower()))
+            {
+                username = $"{baseUsername}_{suffix++}";
+            }
+
+            return username;
+        }
+
         public async Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken)
         {
             // 1. Kiểm tra tính hợp lệ của Refresh Token từ Database

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Hangfire;
 using Microsoft.AspNetCore.Http;
@@ -160,9 +161,16 @@ namespace PostFlow.Services
 
         public async Task<object> GenerateAsync(string userId, VideoGenerateRequest request)
         {
-            var dna = await _context.ContentDNAs
-                .FirstOrDefaultAsync(d => d.Id == request.ContentDnaId && d.UserId == userId)
-                ?? throw new BadRequestException("Content DNA không tồn tại hoặc không thuộc quyền sở hữu.");
+            if (!string.IsNullOrWhiteSpace(request.ContentDnaId))
+            {
+                var dna = await _context.ContentDNAs
+                    .FirstOrDefaultAsync(d => d.Id == request.ContentDnaId && d.UserId == userId);
+
+                if (dna == null)
+                {
+                    throw new BadRequestException("Content DNA không tồn tại hoặc không thuộc quyền sở hữu.");
+                }
+            }
 
             var today = DateTime.Today;
             var currentQuota = await _context.ApiUsageLogs
@@ -188,8 +196,17 @@ namespace PostFlow.Services
             await _context.SaveChangesAsync();
 
             var scheduledAtIsoStr = request.ScheduledAt?.ToString("o");
+            var scriptJson = JsonSerializer.Serialize(request.Script, (JsonSerializerOptions?)null);
+            var channelIds = request.ChannelIds ?? Array.Empty<string>();
             _backgroundJobClient.Enqueue<IBackgroundJobs>(j =>
-                j.RenderVideoJobAsync(video.Id, request.Topic, request.ContentDnaId, request.ChannelIds ?? new string[0], scheduledAtIsoStr));
+                j.RenderVideoJobAsync(
+                    video.Id,
+                    request.Topic,
+                    request.ContentDnaId,
+                    scriptJson,
+                    request.Voice,
+                    channelIds,
+                    scheduledAtIsoStr));
 
             return new { videoId = video.Id, status = video.Status };
         }

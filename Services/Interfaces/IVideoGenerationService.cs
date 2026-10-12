@@ -4,5 +4,10 @@ namespace PostFlow.Services.Interfaces;
 
 public interface IVideoGenerationService
 {
-    Task<string> GenerateVideoAsync(string userId, string topic, string contentDnaId);
+    Task<string> GenerateVideoAsync(
+        string userId,
+        string topic,
+        string? contentDnaId,
+        string scriptJson,
+        string? voice);
 }

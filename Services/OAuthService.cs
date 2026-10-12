@@ -24,17 +24,20 @@ namespace PostFlow.Services
         private readonly PlatformSettings _settings;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<OAuthService> _logger;
+        private readonly IAuthService _authService;
 
         public OAuthService(
             AppDbContext context,
             IOptions<PlatformSettings> settings,
             IHttpClientFactory httpClientFactory,
-            ILogger<OAuthService> logger)
+            ILogger<OAuthService> logger,
+            IAuthService authService)
         {
             _context = context;
             _settings = settings.Value;
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _authService = authService;
         }
 
         private static readonly JsonSerializerOptions JsonOptions = new()
@@ -132,6 +135,143 @@ namespace PostFlow.Services
                 default:
                     throw new BadRequestException($"Nền tảng {platform} không hỗ trợ đăng nhập OAuth.");
             }
+        }
+
+        public string GetSocialLoginAuthorizationUrl(string provider, string redirectUri, out string state)
+        {
+            var normalizedProvider = provider.Trim().ToLowerInvariant();
+            if (normalizedProvider is not ("google" or "facebook"))
+            {
+                throw new BadRequestException("Chỉ hỗ trợ đăng nhập bằng Google hoặc Facebook.");
+            }
+
+            state = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+                .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+            var encodedRedirect = Uri.EscapeDataString(redirectUri);
+            var encodedState = Uri.EscapeDataString(state);
+
+            return normalizedProvider == "google"
+                ? $"https://accounts.google.com/o/oauth2/v2/auth?client_id={Uri.EscapeDataString(_settings.YouTube.ClientId)}&redirect_uri={encodedRedirect}&response_type=code&scope={Uri.EscapeDataString("openid email profile")}&state={encodedState}&access_type=offline&prompt=select_account"
+                : $"https://www.facebook.com/v19.0/dialog/oauth?client_id={Uri.EscapeDataString(_settings.FacebookReels.AppId)}&redirect_uri={encodedRedirect}&response_type=code&scope={Uri.EscapeDataString("public_profile,email")}&state={encodedState}";
+        }
+
+        public async Task<AuthResponseDto> HandleSocialLoginCallbackAsync(string provider, string code, string redirectUri, string? state)
+        {
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                throw new BadRequestException("Authorization code không hợp lệ.");
+            }
+
+            var normalizedProvider = provider.Trim().ToLowerInvariant();
+            var client = _httpClientFactory.CreateClient();
+            string accessToken;
+            string refreshToken = string.Empty;
+            DateTime? tokenExpiresAt = null;
+            string providerUserId;
+            string email = string.Empty;
+            string displayName = normalizedProvider;
+
+            if (normalizedProvider == "google")
+            {
+                var tokenParams = new Dictionary<string, string>
+                {
+                    ["code"] = code,
+                    ["client_id"] = _settings.YouTube.ClientId,
+                    ["client_secret"] = _settings.YouTube.ClientSecret,
+                    ["redirect_uri"] = redirectUri,
+                    ["grant_type"] = "authorization_code"
+                };
+                using var tokenResponse = await client.PostAsync(
+                    "https://oauth2.googleapis.com/token",
+                    new FormUrlEncodedContent(tokenParams));
+                var tokenBody = await tokenResponse.Content.ReadAsStringAsync();
+                if (!tokenResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Google social login token exchange failed: {Response}", tokenBody);
+                    throw new BadRequestException("Không thể xác thực với Google.");
+                }
+
+                using var tokenDoc = JsonDocument.Parse(tokenBody);
+                accessToken = tokenDoc.RootElement.GetProperty("access_token").GetString() ?? string.Empty;
+                refreshToken = tokenDoc.RootElement.TryGetProperty("refresh_token", out var googleRefresh)
+                    ? googleRefresh.GetString() ?? string.Empty
+                    : string.Empty;
+                if (tokenDoc.RootElement.TryGetProperty("expires_in", out var googleExpiry))
+                {
+                    tokenExpiresAt = DateTime.UtcNow.AddSeconds(googleExpiry.GetInt32());
+                }
+
+                using var profileRequest = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    "https://openidconnect.googleapis.com/v1/userinfo");
+                profileRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                using var profileResponse = await client.SendAsync(profileRequest);
+                var profileBody = await profileResponse.Content.ReadAsStringAsync();
+                if (!profileResponse.IsSuccessStatusCode)
+                {
+                    throw new BadRequestException("Không thể lấy thông tin tài khoản Google.");
+                }
+
+                using var profileDoc = JsonDocument.Parse(profileBody);
+                providerUserId = profileDoc.RootElement.GetProperty("sub").GetString() ?? string.Empty;
+                email = profileDoc.RootElement.TryGetProperty("email", out var googleEmail)
+                    ? googleEmail.GetString() ?? string.Empty
+                    : string.Empty;
+                displayName = profileDoc.RootElement.TryGetProperty("name", out var googleName)
+                    ? googleName.GetString() ?? "Google User"
+                    : "Google User";
+            }
+            else if (normalizedProvider == "facebook")
+            {
+                var tokenUrl = $"https://graph.facebook.com/v19.0/oauth/access_token?client_id={Uri.EscapeDataString(_settings.FacebookReels.AppId)}&redirect_uri={Uri.EscapeDataString(redirectUri)}&client_secret={Uri.EscapeDataString(_settings.FacebookReels.AppSecret)}&code={Uri.EscapeDataString(code)}";
+                using var tokenResponse = await client.GetAsync(tokenUrl);
+                var tokenBody = await tokenResponse.Content.ReadAsStringAsync();
+                if (!tokenResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Facebook social login token exchange failed: {Response}", tokenBody);
+                    throw new BadRequestException("Không thể xác thực với Facebook.");
+                }
+
+                using var tokenDoc = JsonDocument.Parse(tokenBody);
+                accessToken = tokenDoc.RootElement.GetProperty("access_token").GetString() ?? string.Empty;
+                if (tokenDoc.RootElement.TryGetProperty("expires_in", out var facebookExpiry))
+                {
+                    tokenExpiresAt = DateTime.UtcNow.AddSeconds(facebookExpiry.GetInt32());
+                }
+
+                using var profileResponse = await client.GetAsync(
+                    $"https://graph.facebook.com/me?fields=id,name,email&access_token={Uri.EscapeDataString(accessToken)}");
+                var profileBody = await profileResponse.Content.ReadAsStringAsync();
+                if (!profileResponse.IsSuccessStatusCode)
+                {
+                    throw new BadRequestException("Không thể lấy thông tin tài khoản Facebook.");
+                }
+
+                using var profileDoc = JsonDocument.Parse(profileBody);
+                providerUserId = profileDoc.RootElement.GetProperty("id").GetString() ?? string.Empty;
+                email = profileDoc.RootElement.TryGetProperty("email", out var facebookEmail)
+                    ? facebookEmail.GetString() ?? string.Empty
+                    : string.Empty;
+                displayName = profileDoc.RootElement.TryGetProperty("name", out var facebookName)
+                    ? facebookName.GetString() ?? "Facebook User"
+                    : "Facebook User";
+            }
+            else
+            {
+                throw new BadRequestException("Chỉ hỗ trợ đăng nhập bằng Google hoặc Facebook.");
+            }
+
+            return await _authService.LoginExternalAsync(new ExternalIdentity
+            {
+                Provider = normalizedProvider,
+                Platform = normalizedProvider == "google" ? PlatformType.YouTube : PlatformType.FacebookReels,
+                ProviderUserId = providerUserId,
+                Email = email,
+                DisplayName = displayName,
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+                TokenExpiresAt = tokenExpiresAt
+            });
         }
 
         public async Task<SocialAccountDto> HandleCallbackAsync(string userId, PlatformType platform, string code, string redirectUri, string? codeVerifier = null)

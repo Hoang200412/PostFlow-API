@@ -403,32 +403,32 @@ namespace PostFlow.Services
                 };
 
             return $@"Hãy đóng vai AI Research Tracker quét các video thịnh hành (Viral Trends) thực tế trên mạng xã hội {platformContext} thuộc lĩnh vực {categoryContext}.
-Hãy tìm và tạo danh sách 6 video đang thực sự thịnh hành để người dùng xem trực tiếp qua iframe nhúng (embed player).
+                Hãy tìm và tạo danh sách 6 video đang thực sự thịnh hành để người dùng xem trực tiếp qua iframe nhúng (embed player).
 
-YÊU CẦU:
-- Bắt buộc trả về đúng định dạng JSON Array thuần túy:
-[
-  {{
-    ""id"": ""slug-video-ngan"",
-    ""title"": ""Tiêu đề video thực tế đang viral"",
-    ""platform"": ""youtube"" (hoặc ""tiktok"", ""reels""),
-    ""category"": ""tech"" (hoặc ""business"", ""lifestyle"", ""entertainment"", ""education""),
-    ""videoUrl"": ""https://www.youtube.com/watch?v=VIDEO_ID"" hoặc link TikTok gốc,
-    ""embedUrl"": ""https://www.youtube.com/embed/VIDEO_ID?autoplay=1"" hoặc link nhúng iframe,
-    ""authorName"": ""@TenKenhNguoiTao"",
-    ""authorAvatarUrl"": ""https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop"",
-    ""viewsCount"": ""2.5M views"",
-    ""likesCount"": ""150K likes"",
-    ""duration"": ""0:45"",
-    ""viralityScore"": 96,
-    ""growthRate"": ""+220%"",
-    ""searchVolume"": ""3.2M"",
-    ""hashtags"": [""#Tag1"", ""#Tag2"", ""#Tag3""],
-    ""description"": ""Giải thích ngắn gọn 1-2 câu vì sao video này viral"",
-    ""sampleHook"": ""Câu hook mở đầu 3s đắt giá của video"",
-    ""thumbnailUrl"": ""https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=720&auto=format&fit=crop""
-  }}
-]";
+                YÊU CẦU:
+                - Bắt buộc trả về đúng định dạng JSON Array thuần túy:
+                [
+                {{
+                    ""id"": ""slug-video-ngan"",
+                    ""title"": ""Tiêu đề video thực tế đang viral"",
+                    ""platform"": ""youtube"" (hoặc ""tiktok"", ""reels""),
+                    ""category"": ""tech"" (hoặc ""business"", ""lifestyle"", ""entertainment"", ""education""),
+                    ""videoUrl"": ""https://www.youtube.com/watch?v=VIDEO_ID"" hoặc link TikTok gốc,
+                    ""embedUrl"": ""https://www.youtube.com/embed/VIDEO_ID?autoplay=1"" hoặc link nhúng iframe,
+                    ""authorName"": ""@TenKenhNguoiTao"",
+                    ""authorAvatarUrl"": ""https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop"",
+                    ""viewsCount"": ""2.5M views"",
+                    ""likesCount"": ""150K likes"",
+                    ""duration"": ""0:45"",
+                    ""viralityScore"": 96,
+                    ""growthRate"": ""+220%"",
+                    ""searchVolume"": ""3.2M"",
+                    ""hashtags"": [""#Tag1"", ""#Tag2"", ""#Tag3""],
+                    ""description"": ""Giải thích ngắn gọn 1-2 câu vì sao video này viral"",
+                    ""sampleHook"": ""Câu hook mở đầu 3s đắt giá của video"",
+                    ""thumbnailUrl"": ""https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=720&auto=format&fit=crop""
+                }}
+            ]";
         }
 
         private static List<TrendTopicDto>? NormalizeTrends(List<TrendTopicDto>? list, string? defaultPlatform, string? defaultCategory)
@@ -585,45 +585,45 @@ YÊU CẦU:
         private static string BuildTrendAnalysisPrompt(AnalyzeTrendRequest request)
         {
             return $@"Phân tích kịch bản và cấu trúc viral của video thịnh hành:
-Tiêu đề video: {request.Topic}
-Nền tảng: {request.Platform}
-Danh mục: {request.Category ?? "Chung"}
-Hashtags: {(request.Hashtags != null ? string.Join(", ", request.Hashtags) : "Không có")}
-Ngữ cảnh / Mô tả: {request.AdditionalContext ?? "Không có"}
+                Tiêu đề video: {request.Topic}
+                Nền tảng: {request.Platform}
+                Danh mục: {request.Category ?? "Chung"}
+                Hashtags: {(request.Hashtags != null ? string.Join(", ", request.Hashtags) : "Không có")}
+                Ngữ cảnh / Mô tả: {request.AdditionalContext ?? "Không có"}
 
-Hãy giải mã vì sao video này đạt triệu views, tâm lý người xem, cấu trúc kịch bản và đưa ra 3 góc làm lại video tương tự nhưng sáng tạo và cuốn hút hơn.
+                Hãy giải mã vì sao video này đạt triệu views, tâm lý người xem, cấu trúc kịch bản và đưa ra 3 góc làm lại video tương tự nhưng sáng tạo và cuốn hút hơn.
 
-BẮT BUỘC TRẢ VỀ JSON THUẦN TÚY:
-{{
-  ""viralityScore"": 96,
-  ""whyTrendingReason"": ""Giải thích chi tiết 2-3 câu vì sao video này đang bùng nổ views (Hook 3s, nhịp độ dựng, tâm lý tò mò/FOMO)..."",
-  ""targetAudience"": ""Mô tả tệp khán giả mục tiêu (độ tuổi, sở thích, hành vi)"",
-  ""emotionalTriggers"": [
-    ""Tò mò & Bất ngờ"",
-    ""Khát khao phát triển"",
-    ""Tiết kiệm thời gian""
-  ],
-  ""angles"": [
-    {{
-      ""angleTitle"": ""Góc 1: Kể lại trải nghiệm thực tế (Storytelling)"",
-      ""targetHook"": ""Câu hook mở đầu 3s giữ chân người xem"",
-      ""contentBrief"": ""Quy trình 3 bước triển khai nội dung trong 45s""
-    }},
-    {{
-      ""angleTitle"": ""Góc 2: Phản biện / Lật ngược góc nhìn thông thường"",
-      ""targetHook"": ""Câu hook thách thức quan điểm cũ"",
-      ""contentBrief"": ""Đưa ra bằng chứng và giải pháp đột phá""
-    }},
-    {{
-      ""angleTitle"": ""Góc 3: Hướng dẫn thực hành nhanh (Tutorial)"",
-      ""targetHook"": ""Câu hook hành động tạo kết quả tức thì"",
-      ""contentBrief"": ""Các bước thực hiện nhanh gọn dễ làm theo""
-    }}
-  ],
-  ""recommendedHashtags"": [""#Hashtag1"", ""#Hashtag2"", ""#Hashtag3"", ""#Hashtag4""],
-  ""suggestedCta"": ""Lời kêu gọi hành động cuối video tăng follow và comment"",
-  ""generatedVideoIdea"": ""Đoạn prompt hoàn chỉnh để sinh video mới tương tự""
-}}";
+                BẮT BUỘC TRẢ VỀ JSON THUẦN TÚY:
+                {{
+                ""viralityScore"": 96,
+                ""whyTrendingReason"": ""Giải thích chi tiết 2-3 câu vì sao video này đang bùng nổ views (Hook 3s, nhịp độ dựng, tâm lý tò mò/FOMO)..."",
+                ""targetAudience"": ""Mô tả tệp khán giả mục tiêu (độ tuổi, sở thích, hành vi)"",
+                ""emotionalTriggers"": [
+                    ""Tò mò & Bất ngờ"",
+                    ""Khát khao phát triển"",
+                    ""Tiết kiệm thời gian""
+                ],
+                ""angles"": [
+                    {{
+                    ""angleTitle"": ""Góc 1: Kể lại trải nghiệm thực tế (Storytelling)"",
+                    ""targetHook"": ""Câu hook mở đầu 3s giữ chân người xem"",
+                    ""contentBrief"": ""Quy trình 3 bước triển khai nội dung trong 45s""
+                    }},
+                    {{
+                    ""angleTitle"": ""Góc 2: Phản biện / Lật ngược góc nhìn thông thường"",
+                    ""targetHook"": ""Câu hook thách thức quan điểm cũ"",
+                    ""contentBrief"": ""Đưa ra bằng chứng và giải pháp đột phá""
+                    }},
+                    {{
+                    ""angleTitle"": ""Góc 3: Hướng dẫn thực hành nhanh (Tutorial)"",
+                    ""targetHook"": ""Câu hook hành động tạo kết quả tức thì"",
+                    ""contentBrief"": ""Các bước thực hiện nhanh gọn dễ làm theo""
+                    }}
+                ],
+                ""recommendedHashtags"": [""#Hashtag1"", ""#Hashtag2"", ""#Hashtag3"", ""#Hashtag4""],
+                ""suggestedCta"": ""Lời kêu gọi hành động cuối video tăng follow và comment"",
+                ""generatedVideoIdea"": ""Đoạn prompt hoàn chỉnh để sinh video mới tương tự""
+            }}";
         }
 
         private static string FormatIsoDuration(string iso)
