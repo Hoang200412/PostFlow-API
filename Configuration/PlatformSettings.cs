@@ -30,5 +30,7 @@ namespace PostFlow.Configuration
         public string AppSecret { get; set; } = string.Empty;
         public string PageId { get; set; } = string.Empty;
         public string PageAccessToken { get; set; } = string.Empty;
+        public string LoginAppId { get; set; } = string.Empty;
+        public string LoginAppSecret { get; set; } = string.Empty;
     }
 }

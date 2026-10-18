@@ -10,6 +10,7 @@ namespace PostFlow.Models
         public string Email { get; set; } = string.Empty;
         public string? PasswordHash { get; set; }
         public string Role { get; set; } = "User"; // "Admin", "User"
+        public string? AvatarUrl { get; set; }
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

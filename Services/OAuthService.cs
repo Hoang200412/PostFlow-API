@@ -150,9 +150,13 @@ namespace PostFlow.Services
             var encodedRedirect = Uri.EscapeDataString(redirectUri);
             var encodedState = Uri.EscapeDataString(state);
 
+            var fbLoginAppId = !string.IsNullOrWhiteSpace(_settings.FacebookReels.LoginAppId)
+                ? _settings.FacebookReels.LoginAppId
+                : _settings.FacebookReels.AppId;
+
             return normalizedProvider == "google"
                 ? $"https://accounts.google.com/o/oauth2/v2/auth?client_id={Uri.EscapeDataString(_settings.YouTube.ClientId)}&redirect_uri={encodedRedirect}&response_type=code&scope={Uri.EscapeDataString("openid email profile")}&state={encodedState}&access_type=offline&prompt=select_account"
-                : $"https://www.facebook.com/v19.0/dialog/oauth?client_id={Uri.EscapeDataString(_settings.FacebookReels.AppId)}&redirect_uri={encodedRedirect}&response_type=code&scope={Uri.EscapeDataString("public_profile,email")}&state={encodedState}";
+                : $"https://www.facebook.com/v19.0/dialog/oauth?client_id={Uri.EscapeDataString(fbLoginAppId)}&redirect_uri={encodedRedirect}&response_type=code&scope={Uri.EscapeDataString("public_profile,email")}&state={encodedState}";
         }
 
         public async Task<AuthResponseDto> HandleSocialLoginCallbackAsync(string provider, string code, string redirectUri, string? state)
@@ -170,6 +174,7 @@ namespace PostFlow.Services
             string providerUserId;
             string email = string.Empty;
             string displayName = normalizedProvider;
+            string avatarUrl = string.Empty;
 
             if (normalizedProvider == "google")
             {
@@ -220,10 +225,20 @@ namespace PostFlow.Services
                 displayName = profileDoc.RootElement.TryGetProperty("name", out var googleName)
                     ? googleName.GetString() ?? "Google User"
                     : "Google User";
+                avatarUrl = profileDoc.RootElement.TryGetProperty("picture", out var googlePicture)
+                    ? googlePicture.GetString() ?? string.Empty
+                    : string.Empty;
             }
             else if (normalizedProvider == "facebook")
             {
-                var tokenUrl = $"https://graph.facebook.com/v19.0/oauth/access_token?client_id={Uri.EscapeDataString(_settings.FacebookReels.AppId)}&redirect_uri={Uri.EscapeDataString(redirectUri)}&client_secret={Uri.EscapeDataString(_settings.FacebookReels.AppSecret)}&code={Uri.EscapeDataString(code)}";
+                var fbLoginAppId = !string.IsNullOrWhiteSpace(_settings.FacebookReels.LoginAppId)
+                    ? _settings.FacebookReels.LoginAppId
+                    : _settings.FacebookReels.AppId;
+                var fbLoginAppSecret = !string.IsNullOrWhiteSpace(_settings.FacebookReels.LoginAppSecret)
+                    ? _settings.FacebookReels.LoginAppSecret
+                    : _settings.FacebookReels.AppSecret;
+
+                var tokenUrl = $"https://graph.facebook.com/v19.0/oauth/access_token?client_id={Uri.EscapeDataString(fbLoginAppId)}&redirect_uri={Uri.EscapeDataString(redirectUri)}&client_secret={Uri.EscapeDataString(fbLoginAppSecret)}&code={Uri.EscapeDataString(code)}";
                 using var tokenResponse = await client.GetAsync(tokenUrl);
                 var tokenBody = await tokenResponse.Content.ReadAsStringAsync();
                 if (!tokenResponse.IsSuccessStatusCode)
@@ -240,7 +255,7 @@ namespace PostFlow.Services
                 }
 
                 using var profileResponse = await client.GetAsync(
-                    $"https://graph.facebook.com/me?fields=id,name,email&access_token={Uri.EscapeDataString(accessToken)}");
+                    $"https://graph.facebook.com/me?fields=id,name,email,picture.width(500).height(500)&access_token={Uri.EscapeDataString(accessToken)}");
                 var profileBody = await profileResponse.Content.ReadAsStringAsync();
                 if (!profileResponse.IsSuccessStatusCode)
                 {
@@ -255,6 +270,12 @@ namespace PostFlow.Services
                 displayName = profileDoc.RootElement.TryGetProperty("name", out var facebookName)
                     ? facebookName.GetString() ?? "Facebook User"
                     : "Facebook User";
+                if (profileDoc.RootElement.TryGetProperty("picture", out var fbPic) &&
+                    fbPic.TryGetProperty("data", out var picData) &&
+                    picData.TryGetProperty("url", out var picUrl))
+                {
+                    avatarUrl = picUrl.GetString() ?? string.Empty;
+                }
             }
             else
             {
@@ -268,6 +289,7 @@ namespace PostFlow.Services
                 ProviderUserId = providerUserId,
                 Email = email,
                 DisplayName = displayName,
+                AvatarUrl = avatarUrl,
                 AccessToken = accessToken,
                 RefreshToken = refreshToken,
                 TokenExpiresAt = tokenExpiresAt
