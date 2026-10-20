@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using PostFlow.Models;
 
 namespace PostFlow.Data
@@ -60,6 +61,12 @@ namespace PostFlow.Data
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
+            // ValueComparer cho List<string> JSONB properties
+            var stringListComparer = new ValueComparer<List<string>>(
+                (c1, c2) => c1 == null && c2 == null || (c1 != null && c2 != null && c1.SequenceEqual(c2)),
+                c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                c => c.ToList());
+
             // 4. Cấu hình bảng VideoAsset
             modelBuilder.Entity<VideoAsset>(entity =>
             {
@@ -72,6 +79,7 @@ namespace PostFlow.Data
                         v => JsonSerializer.Serialize(v, (JsonSerializerOptions)null!),
                         v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions)null!) ?? new List<string>()
                     );
+                entity.Property(e => e.Tags).Metadata.SetValueComparer(stringListComparer);
 
                 // Quan hệ User 1 - n VideoAsset
                 entity.HasOne(e => e.User)
@@ -194,11 +202,13 @@ namespace PostFlow.Data
                     .HasConversion(
                         value => JsonSerializer.Serialize(value, (JsonSerializerOptions)null!),
                         value => JsonSerializer.Deserialize<List<string>>(value, (JsonSerializerOptions)null!) ?? new List<string>());
+                entity.Property(e => e.Hashtags).Metadata.SetValueComparer(stringListComparer);
                 entity.Property(e => e.Keywords)
                     .HasColumnType("jsonb")
                     .HasConversion(
                         value => JsonSerializer.Serialize(value, (JsonSerializerOptions)null!),
                         value => JsonSerializer.Deserialize<List<string>>(value, (JsonSerializerOptions)null!) ?? new List<string>());
+                entity.Property(e => e.Keywords).Metadata.SetValueComparer(stringListComparer);
                 entity.HasOne(e => e.User)
                     .WithMany()
                     .HasForeignKey(e => e.UserId)

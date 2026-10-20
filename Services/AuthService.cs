@@ -82,7 +82,8 @@ namespace PostFlow.Services
                 UserId = user.Id,
                 Username = user.Username,
                 Email = user.Email,
-                Role = user.Role
+                Role = user.Role,
+                AvatarUrl = user.AvatarUrl
             };
         }
 
@@ -135,7 +136,8 @@ namespace PostFlow.Services
                 UserId = user.Id,
                 Username = user.Username,
                 Email = user.Email,
-                Role = user.Role
+                Role = user.Role,
+                AvatarUrl = user.AvatarUrl
             };
         }
 
@@ -170,12 +172,27 @@ namespace PostFlow.Services
                 {
                     Username = username,
                     Email = email,
+                    AvatarUrl = !string.IsNullOrWhiteSpace(identity.AvatarUrl) ? identity.AvatarUrl : null,
                     PasswordHash = null,
                     Role = "User",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
                 };
                 _context.Users.Add(user);
+            }
+            else
+            {
+                // Cập nhật ảnh đại diện nếu có từ OAuth provider
+                if (!string.IsNullOrWhiteSpace(identity.AvatarUrl))
+                {
+                    user.AvatarUrl = identity.AvatarUrl;
+                }
+
+                // Cập nhật username nếu user chưa có hoặc là mặc định
+                if (string.IsNullOrWhiteSpace(user.Username) || user.Username.StartsWith("user_"))
+                {
+                    user.Username = await BuildExternalUsernameAsync(identity.DisplayName, identity.ProviderUserId);
+                }
             }
 
             if (!user.IsActive)
@@ -226,7 +243,8 @@ namespace PostFlow.Services
                 UserId = user.Id,
                 Username = user.Username,
                 Email = user.Email,
-                Role = user.Role
+                Role = user.Role,
+                AvatarUrl = user.AvatarUrl
             };
         }
 
@@ -295,7 +313,8 @@ namespace PostFlow.Services
                 UserId = user.Id,
                 Username = user.Username,
                 Email = user.Email,
-                Role = user.Role
+                Role = user.Role,
+                AvatarUrl = user.AvatarUrl
             };
         }
 
