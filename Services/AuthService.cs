@@ -299,6 +299,28 @@ namespace PostFlow.Services
             };
         }
 
+        public string GenerateSupabaseRealtimeToken(string userId)
+        {
+            var secret = _configuration["Supabase:JwtSecret"];
+            if (string.IsNullOrEmpty(secret))
+            {
+                throw new InvalidOperationException("Chưa cấu hình Supabase:JwtSecret.");
+            }
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+            var token = new JwtSecurityToken(
+                audience: "authenticated",
+                claims: new[]
+                {
+                    new Claim("sub", userId),
+                    new Claim("role", "authenticated")
+                },
+                expires: DateTime.UtcNow.AddMinutes(30),
+                signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
         private async Task CleanupExpiredTokensAsync(string userId)
         {
             // 1. Xóa các token đã hết hạn của user

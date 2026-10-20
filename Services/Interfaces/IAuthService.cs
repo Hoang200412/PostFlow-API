@@ -11,6 +11,7 @@ namespace PostFlow.Services.Interfaces
         Task<AuthResponseDto?> LoginAsync(LoginRequest request);
         Task<AuthResponseDto> LoginExternalAsync(ExternalIdentity identity);
         Task<AuthResponseDto?> RefreshTokenAsync(string refreshToken);
+        string GenerateSupabaseRealtimeToken(string userId);
         Task<bool> RevokeTokenAsync(string userId);
         Task<bool> LogoutAsync(string refreshToken);
     }

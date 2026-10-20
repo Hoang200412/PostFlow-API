@@ -102,6 +102,22 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
+        /// Cấp token ngắn hạn để xác thực kết nối Supabase Realtime.
+        /// </summary>
+        [Authorize]
+        [HttpGet("realtime-token")]
+        public IActionResult GetRealtimeToken()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            return Ok(new { token = _authService.GenerateSupabaseRealtimeToken(userId) });
+        }
+
+        /// <summary>
         /// API Thu hồi Refresh Token theo UserId
         /// </summary>
         [Authorize]
