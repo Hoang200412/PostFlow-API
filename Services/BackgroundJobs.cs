@@ -72,7 +72,6 @@ namespace PostFlow.Services
 
                 video.LocalFilePath = relativePath;
                 video.Status = "Ready";
-                video.DurationSeconds = 15; // Độ dài video mặc định giả lập
                 await _context.SaveChangesAsync();
 
                 _logger.LogInformation("Sinh video thành công! File: {Path}. Tiến hành tạo Posting Jobs cho các kênh...", relativePath);
@@ -109,71 +108,8 @@ namespace PostFlow.Services
 
         public async Task GatherAnalyticsJobAsync()
         {
-            _logger.LogInformation("Bắt đầu thu thập Analytics định kỳ...");
-
-            // Lấy tất cả các jobs đã đăng thành công (Completed)
-            var postedJobs = await _context.UploadJobs
-                .Where(j => j.Status == UploadStatus.Completed)
-                .ToListAsync();
-
-            if (!postedJobs.Any())
-            {
-                _logger.LogInformation("Không có video đã đăng nào để thu thập số liệu.");
-                return;
-            }
-
-            var random = new Random();
-            int updatedCount = 0;
-
-            foreach (var job in postedJobs)
-            {
-                // Giả lập tăng tiến số liệu views, likes, shares, comments, saves
-                int currentViews = 0;
-                int currentLikes = 0;
-                int currentShares = 0;
-                int currentComments = 0;
-                int currentSaves = 0;
-
-                var lastSnapshot = await _context.Analytics
-                    .Where(a => a.UploadJobId == job.Id)
-                    .OrderByDescending(a => a.CapturedAt)
-                    .FirstOrDefaultAsync();
-
-                if (lastSnapshot != null)
-                {
-                    currentViews = lastSnapshot.Views + random.Next(100, 1000);
-                    currentLikes = lastSnapshot.Likes + random.Next(10, 100);
-                    currentShares = lastSnapshot.Shares + random.Next(2, 20);
-                    currentComments = lastSnapshot.Comments + random.Next(1, 10);
-                    currentSaves = lastSnapshot.Saves + random.Next(1, 15);
-                }
-                else
-                {
-                    currentViews = random.Next(500, 2000);
-                    currentLikes = (int)(currentViews * 0.1) + random.Next(10, 50);
-                    currentShares = (int)(currentLikes * 0.15) + random.Next(1, 10);
-                    currentComments = (int)(currentLikes * 0.05) + random.Next(1, 5);
-                    currentSaves = (int)(currentLikes * 0.08) + random.Next(1, 8);
-                }
-
-                var snapshot = new Analytics
-                {
-                    UploadJobId = job.Id,
-                    Views = currentViews,
-                    Likes = currentLikes,
-                    Shares = currentShares,
-                    Comments = currentComments,
-                    Saves = currentSaves,
-                    CapturedAt = DateTime.UtcNow
-                };
-
-                _context.Analytics.Add(snapshot);
-                job.LastAnalyticsAt = DateTime.UtcNow;
-                updatedCount++;
-            }
-
-            await _context.SaveChangesAsync();
-            _logger.LogInformation("Đã cập nhật Analytics snapshot cho {Count} jobs thành công.", updatedCount);
+            _logger.LogWarning("Analytics collector chưa được cấu hình; bỏ qua lần thu thập này để tránh ghi dữ liệu giả.");
+            await Task.CompletedTask;
         }
     }
 }

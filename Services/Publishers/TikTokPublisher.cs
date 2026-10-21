@@ -127,11 +127,12 @@ namespace PostFlow.Services.Publishers
                     if (refreshed != null) accessToken = refreshed;
                 }
 
-                bool hasValidCredentials = !string.IsNullOrWhiteSpace(accessToken);
-
-                if (hasValidCredentials)
+                if (string.IsNullOrWhiteSpace(accessToken))
                 {
-                    _logger.LogInformation("Đang sử dụng TikTok Direct Post API v2 thực tế...");
+                    return PublishResult.Failed("Chưa cấu hình TikTok Access Token.");
+                }
+
+                _logger.LogInformation("Đang sử dụng TikTok Direct Post API v2...");
 
                     var client = _httpClientFactory.CreateClient();
                     var fileInfo = new FileInfo(videoFilePath);
@@ -236,25 +237,6 @@ namespace PostFlow.Services.Publishers
                     string tiktokUrl = $"https://www.tiktok.com/@creator/video/{publishId}";
                     _logger.LogInformation("TikTok xuất bản thành công! Publish ID: {PublishId}, URL: {Url}", publishId, tiktokUrl);
                     return PublishResult.Success(publishId, tiktokUrl);
-                }
-                else
-                {
-                    _logger.LogWarning("Chưa cấu hình TikTok Access Token. Đang chạy chế độ Giả lập (Mock Mode)...");
-
-                    for (int i = 0; i <= 100; i += 25)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        progress?.Report(i);
-                        _logger.LogInformation("TikTok Mock Publishing: {Percent}%", i);
-                        await Task.Delay(400, cancellationToken);
-                    }
-
-                    string dummyPublishId = "v2_publish_" + Guid.NewGuid().ToString("N").Substring(0, 16);
-                    string videoUrl = $"https://www.tiktok.com/@creator/video/{Guid.NewGuid().ToString("N").Substring(0, 19)}";
-                    _logger.LogInformation("Xuất bản TikTok thành công (Mock)! Publish ID: {PublishId}", dummyPublishId);
-
-                    return PublishResult.Success(dummyPublishId, videoUrl);
-                }
             }
             catch (OperationCanceledException)
             {

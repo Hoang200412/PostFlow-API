@@ -33,35 +33,7 @@ namespace PostFlow.Services
 
         public async Task<SocialAccountDto> ConnectAsync(string userId, ConnectChannelRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.AccountName) || string.IsNullOrWhiteSpace(request.ChannelIdOrPageId))
-            {
-                throw new BadRequestException("AccountName và ChannelIdOrPageId không được để trống.");
-            }
-
-            var exists = await _context.SocialAccounts
-                .AnyAsync(sa => sa.UserId == userId && sa.Platform == request.Platform && sa.ChannelIdOrPageId == request.ChannelIdOrPageId);
-
-            if (exists)
-            {
-                throw new ConflictException("Kênh này đã được kết nối trước đó.");
-            }
-
-            var channel = new SocialAccount
-            {
-                UserId = userId,
-                Platform = request.Platform,
-                AccountName = request.AccountName,
-                ChannelIdOrPageId = request.ChannelIdOrPageId,
-                AccessToken = Guid.NewGuid().ToString(),
-                RefreshToken = Guid.NewGuid().ToString(),
-                TokenExpiresAt = DateTime.UtcNow.AddDays(30),
-                IsActive = true
-            };
-
-            _context.SocialAccounts.Add(channel);
-            await _context.SaveChangesAsync();
-
-            return channel.ToDto();
+            throw new BadRequestException("Kết nối kênh phải được thực hiện qua OAuth để nhận thông tin xác thực hợp lệ.");
         }
 
         public async Task DisconnectAsync(string userId, string id)

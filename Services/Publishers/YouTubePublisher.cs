@@ -51,13 +51,14 @@ namespace PostFlow.Services.Publishers
                 var clientSecret = _settings.ClientSecret;
                 var refreshToken = account?.RefreshToken ?? _settings.RefreshToken;
 
-                bool hasValidCredentials = !string.IsNullOrWhiteSpace(clientId) && 
-                                           !string.IsNullOrWhiteSpace(clientSecret) &&
-                                           !string.IsNullOrWhiteSpace(refreshToken);
-
-                if (hasValidCredentials)
+                if (string.IsNullOrWhiteSpace(clientId) ||
+                    string.IsNullOrWhiteSpace(clientSecret) ||
+                    string.IsNullOrWhiteSpace(refreshToken))
                 {
-                    _logger.LogInformation("Đang sử dụng Google API SDK để xuất bản lên YouTube thực tế...");
+                    return PublishResult.Failed("Chưa cấu hình đầy đủ YouTube Client ID, Client Secret hoặc Refresh Token.");
+                }
+
+                _logger.LogInformation("Đang sử dụng Google API SDK để xuất bản lên YouTube...");
 
                     var tokenResponse = new TokenResponse
                     {
@@ -163,26 +164,7 @@ namespace PostFlow.Services.Publishers
                             return PublishResult.Success(publishedVideoId, $"https://www.youtube.com/watch?v={publishedVideoId}");
                         }
                     }
-                }
-                else
-                {
-                    _logger.LogWarning("Chưa cấu hình Google YouTube Credentials hoặc AccessToken. Đang chạy chế độ Giả lập (Mock Mode)...");
-                    
-                    // Giả lập tiến trình upload
-                    for (int i = 0; i <= 100; i += 20)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        progress?.Report(i);
-                        _logger.LogInformation("YouTube Mock Publishing: {Percent}%", i);
-                        await Task.Delay(400, cancellationToken);
-                    }
-                }
-
-                string dummyVideoId = Guid.NewGuid().ToString("N").Substring(0, 11);
-                string videoUrl = $"https://www.youtube.com/watch?v={dummyVideoId}";
-                _logger.LogInformation("Xuất bản YouTube thành công (Mock)! URL: {Url}", videoUrl);
-
-                return PublishResult.Success(dummyVideoId, videoUrl);
+                return PublishResult.Failed("YouTube không trả về Video ID sau khi upload.");
             }
             catch (OperationCanceledException)
             {

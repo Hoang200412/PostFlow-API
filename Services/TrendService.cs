@@ -216,7 +216,6 @@ namespace PostFlow.Services
             if (!doc.RootElement.TryGetProperty("items", out var items) || items.GetArrayLength() == 0) return null;
 
             var results = new List<TrendTopicDto>();
-            var rand = new Random();
 
             foreach (var item in items.EnumerateArray())
             {
@@ -225,7 +224,7 @@ namespace PostFlow.Services
 
                 var snippet = item.GetProperty("snippet");
                 var title = snippet.GetProperty("title").GetString() ?? "Video thịnh hành";
-                var channelTitle = snippet.GetProperty("channelTitle").GetString() ?? "@YouTubeCreator";
+                var channelTitle = snippet.GetProperty("channelTitle").GetString() ?? string.Empty;
                 var description = snippet.GetProperty("description").GetString() ?? string.Empty;
 
                 var thumbnailUrl = string.Empty;
@@ -250,11 +249,15 @@ namespace PostFlow.Services
                         if (!string.IsNullOrWhiteSpace(t)) tagsList.Add($"#{t.Replace(" ", "")}");
                     }
                 }
-                if (tagsList.Count == 0) tagsList = new List<string> { "#Shorts", "#Trending", "#YouTube" };
+                var publishedAt = DateTime.MinValue;
+                if (snippet.TryGetProperty("publishedAt", out var publishedAtElement))
+                {
+                    DateTime.TryParse(publishedAtElement.GetString(), out publishedAt);
+                }
 
                 // Statistics
-                var viewsCount = "1.5M views";
-                var likesCount = "80K likes";
+                var viewsCount = string.Empty;
+                var likesCount = string.Empty;
                 if (item.TryGetProperty("statistics", out var stats))
                 {
                     if (stats.TryGetProperty("viewCount", out var vCount) && long.TryParse(vCount.GetString(), out var views))
@@ -268,7 +271,7 @@ namespace PostFlow.Services
                 }
 
                 // Duration
-                var duration = "0:45";
+                var duration = string.Empty;
                 if (item.TryGetProperty("contentDetails", out var contentDetails) && contentDetails.TryGetProperty("duration", out var durElem))
                 {
                     var durStr = durElem.GetString() ?? string.Empty;
@@ -283,19 +286,19 @@ namespace PostFlow.Services
                     Category = category ?? "tech",
                     VideoUrl = $"https://www.youtube.com/watch?v={videoId}",
                     EmbedUrl = $"https://www.youtube.com/embed/{videoId}?autoplay=1",
-                    AuthorName = channelTitle.StartsWith("@") ? channelTitle : $"@{channelTitle}",
-                    AuthorAvatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop",
+                    AuthorName = channelTitle,
+                    AuthorAvatarUrl = string.Empty,
                     ViewsCount = viewsCount,
                     LikesCount = likesCount,
                     Duration = duration,
-                    ViralityScore = rand.Next(90, 99),
-                    GrowthRate = $"+{rand.Next(150, 320)}%",
+                    ViralityScore = 0,
+                    GrowthRate = string.Empty,
                     SearchVolume = viewsCount.Replace(" views", ""),
                     Hashtags = tagsList,
                     Description = description.Length > 150 ? description.Substring(0, 150) + "..." : description,
-                    SampleHook = $"Khám phá điều đặc biệt làm nên triệu lượt xem của '{title}'...",
+                    SampleHook = string.Empty,
                     ThumbnailUrl = thumbnailUrl,
-                    TrendingSince = DateTime.UtcNow
+                    TrendingSince = publishedAt
                 });
             }
 

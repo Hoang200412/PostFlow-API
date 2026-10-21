@@ -349,23 +349,25 @@ namespace PostFlow.Services
                         profileReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                         var profileResp = await client.SendAsync(profileReq);
 
-                        if (profileResp.IsSuccessStatusCode)
+                        if (!profileResp.IsSuccessStatusCode)
                         {
-                            var profileBody = await profileResp.Content.ReadAsStringAsync();
-                            using var profileDoc = JsonDocument.Parse(profileBody);
-                            var items = profileDoc.RootElement.GetProperty("items");
-                            if (items.GetArrayLength() > 0)
-                            {
-                                var firstItem = items[0];
-                                channelOrPageId = firstItem.GetProperty("id").GetString() ?? "default_channel";
-                                accountName = firstItem.GetProperty("snippet").GetProperty("title").GetString() ?? "Kênh YouTube";
-                            }
+                            throw new BadRequestException("Không thể lấy thông tin kênh YouTube.");
                         }
 
-                        if (string.IsNullOrEmpty(accountName))
+                        var profileBody = await profileResp.Content.ReadAsStringAsync();
+                        using var profileDoc = JsonDocument.Parse(profileBody);
+                        var items = profileDoc.RootElement.GetProperty("items");
+                        if (items.GetArrayLength() == 0)
                         {
-                            accountName = "YouTube Channel (" + DateTime.UtcNow.ToString("dd/MM") + ")";
-                            channelOrPageId = "yt_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                            throw new BadRequestException("Tài khoản YouTube không có kênh để kết nối.");
+                        }
+
+                        var firstItem = items[0];
+                        channelOrPageId = firstItem.GetProperty("id").GetString() ?? string.Empty;
+                        accountName = firstItem.GetProperty("snippet").GetProperty("title").GetString() ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(channelOrPageId) || string.IsNullOrWhiteSpace(accountName))
+                        {
+                            throw new BadRequestException("Thông tin kênh YouTube không hợp lệ.");
                         }
                         break;
                     }
@@ -396,21 +398,28 @@ namespace PostFlow.Services
                         }
 
                         using var doc = JsonDocument.Parse(responseBody);
-                        if (doc.RootElement.TryGetProperty("data", out var dataElem))
+                        if (!doc.RootElement.TryGetProperty("data", out var dataElem))
                         {
-                            accessToken = dataElem.GetProperty("access_token").GetString() ?? "";
-                            if (dataElem.TryGetProperty("refresh_token", out var rtElem))
-                            {
-                                refreshToken = rtElem.GetString() ?? "";
-                            }
-                            if (dataElem.TryGetProperty("open_id", out var openIdElem))
-                            {
-                                channelOrPageId = openIdElem.GetString() ?? "";
-                            }
-                            if (dataElem.TryGetProperty("expires_in", out var expElem))
-                            {
-                                tokenExpiresAt = DateTime.UtcNow.AddSeconds(expElem.GetInt32());
-                            }
+                            throw new BadRequestException("TikTok không trả về thông tin tài khoản.");
+                        }
+
+                        accessToken = dataElem.GetProperty("access_token").GetString() ?? "";
+                        if (dataElem.TryGetProperty("refresh_token", out var rtElem))
+                        {
+                            refreshToken = rtElem.GetString() ?? "";
+                        }
+                        if (dataElem.TryGetProperty("open_id", out var openIdElem))
+                        {
+                            channelOrPageId = openIdElem.GetString() ?? "";
+                        }
+                        if (dataElem.TryGetProperty("expires_in", out var expElem))
+                        {
+                            tokenExpiresAt = DateTime.UtcNow.AddSeconds(expElem.GetInt32());
+                        }
+
+                        if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(channelOrPageId))
+                        {
+                            throw new BadRequestException("TikTok không trả về token hoặc định danh tài khoản hợp lệ.");
                         }
 
                         accountName = !string.IsNullOrEmpty(channelOrPageId) ? $"TikTok User ({channelOrPageId.Substring(0, Math.Min(6, channelOrPageId.Length))})" : "TikTok Channel";
@@ -435,25 +444,28 @@ namespace PostFlow.Services
 
                         // 2. Lấy danh sách Facebook Pages của người dùng để lấy Page Access Token
                         var pagesResp = await client.GetAsync($"https://graph.facebook.com/v19.0/me/accounts?access_token={userAccessToken}");
-                        if (pagesResp.IsSuccessStatusCode)
+                        if (!pagesResp.IsSuccessStatusCode)
                         {
-                            var pagesBody = await pagesResp.Content.ReadAsStringAsync();
-                            using var pagesDoc = JsonDocument.Parse(pagesBody);
-                            var data = pagesDoc.RootElement.GetProperty("data");
-                            if (data.GetArrayLength() > 0)
-                            {
-                                var firstPage = data[0];
-                                channelOrPageId = firstPage.GetProperty("id").GetString() ?? "";
-                                accountName = firstPage.GetProperty("name").GetString() ?? "Facebook Fanpage";
-                                accessToken = firstPage.GetProperty("access_token").GetString() ?? userAccessToken;
-                            }
+                            throw new BadRequestException("Không thể lấy danh sách Facebook Page.");
                         }
 
-                        if (string.IsNullOrEmpty(accessToken))
+                        var pagesBody = await pagesResp.Content.ReadAsStringAsync();
+                        using var pagesDoc = JsonDocument.Parse(pagesBody);
+                        var data = pagesDoc.RootElement.GetProperty("data");
+                        if (data.GetArrayLength() == 0)
                         {
-                            accessToken = userAccessToken;
-                            accountName = "Facebook Account";
-                            channelOrPageId = "fb_me";
+                            throw new BadRequestException("Tài khoản Facebook không quản lý Page nào.");
+                        }
+
+                        var firstPage = data[0];
+                        channelOrPageId = firstPage.GetProperty("id").GetString() ?? string.Empty;
+                        accountName = firstPage.GetProperty("name").GetString() ?? string.Empty;
+                        accessToken = firstPage.GetProperty("access_token").GetString() ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(channelOrPageId) ||
+                            string.IsNullOrWhiteSpace(accountName) ||
+                            string.IsNullOrWhiteSpace(accessToken))
+                        {
+                            throw new BadRequestException("Facebook Page không trả về thông tin xác thực hợp lệ.");
                         }
                         break;
                     }

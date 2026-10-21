@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PostFlow.Configuration;
+using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Services.Interfaces;
 
@@ -43,7 +44,7 @@ namespace PostFlow.Services.Publishers
             if (!File.Exists(videoFilePath))
             {
                 _logger.LogError("Không tìm thấy file video tại: {Path}", videoFilePath);
-                return PublishResult.Failed($"Không tìm thấy file video tại: {videoFilePath}");
+                throw new NotFoundException($"Không tìm thấy file video tại: {videoFilePath}");
             }
 
             try
@@ -56,114 +57,116 @@ namespace PostFlow.Services.Publishers
                     ? account.AccessToken
                     : _settings.PageAccessToken;
 
-                bool hasValidCredentials = !string.IsNullOrWhiteSpace(pageId) &&
-                                           !pageId.StartsWith("YOUR_") &&
-                                           !string.IsNullOrWhiteSpace(pageAccessToken) &&
-                                           !pageAccessToken.StartsWith("YOUR_");
-
-                if (hasValidCredentials)
+                if (string.IsNullOrWhiteSpace(pageId) || string.IsNullOrWhiteSpace(pageAccessToken))
                 {
-                    _logger.LogInformation("Đang sử dụng Meta Graph API để xuất bản Facebook Reels thực tế...");
-
-                    var client = _httpClientFactory.CreateClient();
-                    var fileInfo = new FileInfo(videoFilePath);
-                    long totalBytes = fileInfo.Length;
-
-                    // Bước 1: Khởi tạo phiên upload (Initialize Session)
-                    string startUrl = $"https://graph.facebook.com/v19.0/{pageId}/video_reels?upload_phase=start&access_token={pageAccessToken}";
-                    var startResponse = await client.PostAsync(startUrl, null, cancellationToken);
-                    var startResponseBody = await startResponse.Content.ReadAsStringAsync(cancellationToken);
-
-                    if (!startResponse.IsSuccessStatusCode)
-                    {
-                        _logger.LogError("Facebook Reels phase=start thất bại: {Response}", startResponseBody);
-                        throw new Exception($"Facebook Reels Start Error: {startResponseBody}");
-                    }
-
-                    using var startJsonDoc = JsonDocument.Parse(startResponseBody);
-                    string videoId = startJsonDoc.RootElement.GetProperty("video_id").GetString()!;
-                    string uploadUrl = startJsonDoc.RootElement.GetProperty("upload_url").GetString()!;
-
-                    _logger.LogInformation("Đã khởi tạo Facebook Reels session: VideoId: {VideoId}", videoId);
-                    progress?.Report(10);
-
-                    // Bước 2: Upload file video nhị phân (Upload Video)
-                    using (var fileStream = new FileStream(videoFilePath, FileMode.Open, FileAccess.Read))
-                    {
-                        using var streamContent = new StreamContent(fileStream);
-                        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-
-                        using var uploadHttpRequest = new HttpRequestMessage(HttpMethod.Post, uploadUrl)
-                        {
-                            Content = streamContent
-                        };
-                        uploadHttpRequest.Headers.Add("Authorization", $"OAuth {pageAccessToken}");
-                        uploadHttpRequest.Headers.Add("offset", "0");
-                        uploadHttpRequest.Headers.Add("file_size", totalBytes.ToString());
-
-                        var uploadResponse = await client.SendAsync(uploadHttpRequest, cancellationToken);
-                        if (!uploadResponse.IsSuccessStatusCode)
-                        {
-                            var uploadErr = await uploadResponse.Content.ReadAsStringAsync(cancellationToken);
-                            throw new Exception($"Facebook Reels Upload Phase Error: {uploadErr}");
-                        }
-                    }
-
-                    progress?.Report(90);
-                    _logger.LogInformation("Đã đẩy file video lên Meta CDN thành công. Tiến hành xuất bản Reels...");
-
-                    // Bước 3: Hoàn tất và xuất bản Reels (Finish & Publish)
-                    string desc = Uri.EscapeDataString(metadata.Description ?? metadata.Title ?? "Video ngắn từ PostFlow");
-                    string finishUrl = $"https://graph.facebook.com/v19.0/{pageId}/video_reels?upload_phase=finish&video_id={videoId}&video_state=PUBLISHED&description={desc}&access_token={pageAccessToken}";
-
-                    var finishResponse = await client.PostAsync(finishUrl, null, cancellationToken);
-                    var finishResponseBody = await finishResponse.Content.ReadAsStringAsync(cancellationToken);
-
-                    if (!finishResponse.IsSuccessStatusCode)
-                    {
-                        _logger.LogError("Facebook Reels phase=finish thất bại: {Response}", finishResponseBody);
-                        throw new Exception($"Facebook Reels Finish Error: {finishResponseBody}");
-                    }
-
-                    progress?.Report(100);
-                    string facebookVideoUrl = $"https://www.facebook.com/watch/reel/{videoId}";
-                    _logger.LogInformation("Xuất bản Facebook Reels thành công! Video ID: {VideoId}, URL: {Url}", videoId, facebookVideoUrl);
-
-                    return PublishResult.Success(videoId, facebookVideoUrl);
+                    _logger.LogError("Chưa cấu hình Facebook Page ID hoặc Page Access Token.");
+                    throw new BadRequestException("Chưa cấu hình Facebook Page ID hoặc Page Access Token.");
                 }
-                else
+
+                _logger.LogInformation("Đang sử dụng Meta Graph API để xuất bản Facebook Reels...");
+
+                var client = _httpClientFactory.CreateClient();
+                var fileInfo = new FileInfo(videoFilePath);
+                long totalBytes = fileInfo.Length;
+
+                // Bước 1: Khởi tạo phiên upload (Initialize Session)
+                string startUrl = $"https://graph.facebook.com/v19.0/{pageId}/video_reels?upload_phase=start&access_token={pageAccessToken}";
+                var startResponse = await client.PostAsync(startUrl, null, cancellationToken);
+                var startResponseBody = await startResponse.Content.ReadAsStringAsync(cancellationToken);
+
+                if (!startResponse.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning("Chưa cấu hình Facebook Page ID / Page Access Token. Đang chạy chế độ Giả lập (Mock Mode)...");
-
-                    for (int i = 0; i <= 100; i += 30)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        int currentProgress = Math.Min(i, 90);
-                        progress?.Report(currentProgress);
-                        _logger.LogInformation("Facebook Reels Mock Publishing: {Percent}%", currentProgress);
-                        await Task.Delay(300, cancellationToken);
-                    }
-
-                    await Task.Delay(500, cancellationToken);
-                    progress?.Report(100);
-
-                    string dummyFacebookVideoId = "fb_reel_" + Guid.NewGuid().ToString("N").Substring(0, 15);
-                    string videoUrl = $"https://www.facebook.com/watch/reel/{dummyFacebookVideoId}";
-                    _logger.LogInformation("Xuất bản Facebook Reels thành công (Mock)! Video ID: {VideoId}", dummyFacebookVideoId);
-
-                    return PublishResult.Success(dummyFacebookVideoId, videoUrl);
+                    var errorMsg = ParseMetaErrorMessage(startResponseBody);
+                    _logger.LogError("Facebook Reels phase=start thất bại: {Response}", startResponseBody);
+                    throw new AppException($"Facebook Reels Start Error: {errorMsg}", startResponse.StatusCode);
                 }
+
+                using var startJsonDoc = JsonDocument.Parse(startResponseBody);
+                string videoId = startJsonDoc.RootElement.GetProperty("video_id").GetString()!;
+                string uploadUrl = startJsonDoc.RootElement.GetProperty("upload_url").GetString()!;
+
+                _logger.LogInformation("Đã khởi tạo Facebook Reels session: VideoId: {VideoId}", videoId);
+                progress?.Report(10);
+
+                // Bước 2: Upload file video nhị phân (Upload Video)
+                using (var fileStream = new FileStream(videoFilePath, FileMode.Open, FileAccess.Read))
+                {
+                    using var streamContent = new StreamContent(fileStream);
+                    streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                    using var uploadHttpRequest = new HttpRequestMessage(HttpMethod.Post, uploadUrl)
+                    {
+                        Content = streamContent
+                    };
+                    uploadHttpRequest.Headers.Add("Authorization", $"OAuth {pageAccessToken}");
+                    uploadHttpRequest.Headers.Add("offset", "0");
+                    uploadHttpRequest.Headers.Add("file_size", totalBytes.ToString());
+
+                    var uploadResponse = await client.SendAsync(uploadHttpRequest, cancellationToken);
+                    if (!uploadResponse.IsSuccessStatusCode)
+                    {
+                        var uploadErr = await uploadResponse.Content.ReadAsStringAsync(cancellationToken);
+                        var errorMsg = ParseMetaErrorMessage(uploadErr);
+                        _logger.LogError("Facebook Reels phase=upload thất bại: {Response}", uploadErr);
+                        throw new AppException($"Facebook Reels Upload Phase Error: {errorMsg}", uploadResponse.StatusCode);
+                    }
+                }
+
+                progress?.Report(90);
+                _logger.LogInformation("Đã đẩy file video lên Meta CDN thành công. Tiến hành xuất bản Reels...");
+
+                // Bước 3: Hoàn tất và xuất bản Reels (Finish & Publish)
+                string desc = Uri.EscapeDataString(metadata.Description ?? metadata.Title ?? "Video ngắn từ PostFlow");
+                string finishUrl = $"https://graph.facebook.com/v19.0/{pageId}/video_reels?upload_phase=finish&video_id={videoId}&video_state=PUBLISHED&description={desc}&access_token={pageAccessToken}";
+
+                var finishResponse = await client.PostAsync(finishUrl, null, cancellationToken);
+                var finishResponseBody = await finishResponse.Content.ReadAsStringAsync(cancellationToken);
+
+                if (!finishResponse.IsSuccessStatusCode)
+                {
+                    var errorMsg = ParseMetaErrorMessage(finishResponseBody);
+                    _logger.LogError("Facebook Reels phase=finish thất bại: {Response}", finishResponseBody);
+                    throw new AppException($"Facebook Reels Finish Error: {errorMsg}", finishResponse.StatusCode);
+                }
+
+                progress?.Report(100);
+                string facebookVideoUrl = $"https://www.facebook.com/watch/reel/{videoId}";
+                _logger.LogInformation("Xuất bản Facebook Reels thành công! Video ID: {VideoId}, URL: {Url}", videoId, facebookVideoUrl);
+
+                return PublishResult.Success(videoId, facebookVideoUrl);
             }
-            catch (OperationCanceledException)
+            catch (AppException)
             {
-                _logger.LogWarning("Tiến trình xuất bản lên Facebook Reels bị hủy bỏ.");
-                return PublishResult.Failed("Tiến trình xuất bản bị hủy bỏ.");
+                throw;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi xảy ra khi xuất bản lên Facebook Reels.");
-                return PublishResult.Failed($"Lỗi hệ thống Facebook Reels: {ex.Message}");
+                throw new AppException($"Lỗi hệ thống Facebook Reels: {ex.Message}", ex);
             }
+        }
+
+        private static string ParseMetaErrorMessage(string responseBody)
+        {
+            if (string.IsNullOrWhiteSpace(responseBody)) return "Phản hồi rỗng từ Meta API.";
+            try
+            {
+                using var doc = JsonDocument.Parse(responseBody);
+                if (doc.RootElement.TryGetProperty("error", out var errorElement))
+                {
+                    var message = errorElement.TryGetProperty("message", out var msgProp) ? msgProp.GetString() : null;
+                    var code = errorElement.TryGetProperty("code", out var codeProp) ? codeProp.GetInt32().ToString() : null;
+                    if (!string.IsNullOrEmpty(message))
+                    {
+                        return code != null ? $"[Code {code}] {message}" : message;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback nếu không phải JSON
+            }
+            return responseBody;
         }
     }
 }

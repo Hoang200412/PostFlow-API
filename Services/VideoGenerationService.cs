@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using PostFlow.Data;
@@ -11,14 +10,10 @@ namespace PostFlow.Services;
 public class VideoGenerationService : IVideoGenerationService
 {
     private readonly AppDbContext _context;
-    private readonly IStorageService _storageService;
-
     public VideoGenerationService(
-        AppDbContext context,
-        IStorageService storageService)
+        AppDbContext context)
     {
         _context = context;
-        _storageService = storageService;
     }
 
     /// <summary>
@@ -40,33 +35,8 @@ public class VideoGenerationService : IVideoGenerationService
             }
         }
 
-        // Pipeline xử lý:
-        // Bước 1: Gọi TTS tổng hợp giọng đọc
-        await Task.Delay(1000);
-
-        // Bước 2: Gọi Pexels API lấy stock footage
-        await Task.Delay(2000);
-        await LogApiUsageAsync(userId, "Pexels", 6, 0.00m);
-
-        // Bước 3: FFmpeg Render (Composition + Audio + Subtitles)
-        await Task.Delay(2000);
-
-        // Bước 4: Tạo file video MP4 và đẩy trực tiếp lên Cloudflare R2 Storage
-        var videoId = Guid.NewGuid().ToString("N");
-        var fileName = $"{videoId}.mp4";
-        var now = DateTime.UtcNow;
-        var folderName = $"videos/{userId}/{now:yyyy}/{now:MM}";
-
-        byte[] mockMp4Bytes = new byte[] {
-            0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, // ftyp
-            0x6d, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
-            0x6d, 0x70, 0x34, 0x32, 0x69, 0x73, 0x6f, 0x6d
-        };
-
-        using var memoryStream = new MemoryStream(mockMp4Bytes);
-        var storagePath = await _storageService.SaveFileAsync(memoryStream, folderName, fileName, "video/mp4");
-
-        return storagePath;
+        throw new InvalidOperationException(
+            "Video renderer chưa được cấu hình. Cần triển khai TTS, media composition và FFmpeg trước khi sinh video.");
     }
 
     private async Task LogApiUsageAsync(string userId, string provider, int callCount, decimal cost)

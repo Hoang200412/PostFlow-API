@@ -166,7 +166,8 @@ namespace PostFlow.Data
             modelBuilder.Entity<Notification>(entity =>
             {
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Type).HasConversion<string>();
+                entity.Property(e => e.Type)
+                    .HasConversion(v => v.ToString(), v => ParseNotificationType(v));
 
                 entity.HasOne(e => e.User)
                     .WithMany(u => u.Notifications)
@@ -216,5 +217,8 @@ namespace PostFlow.Data
                 entity.HasIndex(e => new { e.UserId, e.CreatedAt });
             });
         }
+
+        private static NotificationType ParseNotificationType(string value)
+            => Enum.TryParse<NotificationType>(value, true, out var result) ? result : NotificationType.Info;
     }
 }

@@ -137,7 +137,7 @@ public class PostService : IPostService
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            return CreateFallbackContent(request);
+            throw new BadRequestException("Chưa cấu hình OpenRouter API key để sinh nội dung.");
         }
 
         try
@@ -160,7 +160,10 @@ public class PostService : IPostService
             message.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
             using var response = await client.SendAsync(message);
-            if (!response.IsSuccessStatusCode) return CreateFallbackContent(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new BadRequestException("Dịch vụ sinh nội dung không phản hồi thành công.");
+            }
 
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var rawContent = document.RootElement
@@ -170,12 +173,12 @@ public class PostService : IPostService
                 .GetString();
             var json = ExtractJson(rawContent ?? string.Empty);
             return JsonSerializer.Deserialize<GeneratedPostContent>(json, JsonOptions)
-                ?? CreateFallbackContent(request);
+                ?? throw new BadRequestException("Dịch vụ sinh nội dung trả về dữ liệu không hợp lệ.");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Không thể sinh nội dung bài viết bằng AI, dùng nội dung dự phòng.");
-            return CreateFallbackContent(request);
+            _logger.LogError(ex, "Không thể sinh nội dung bài viết.");
+            throw new BadRequestException("Không thể sinh nội dung bài viết từ dịch vụ AI.");
         }
     }
 
@@ -200,17 +203,6 @@ public class PostService : IPostService
         var last = text.LastIndexOf('}');
         return first >= 0 && last > first ? text.Substring(first, last - first + 1) : text.Trim();
     }
-
-    private static GeneratedPostContent CreateFallbackContent(GeneratePostRequest request) => new()
-    {
-        Title = request.Prompt,
-        Content = $"{request.Prompt}\n\nHãy cùng khám phá những thông tin hữu ích và thực tế trong chủ đề này.",
-        ShortDescription = request.Prompt,
-        Hook = $"Bạn đã biết điều này về {request.Prompt}?",
-        CallToAction = "Lưu bài viết và chia sẻ suy nghĩ của bạn ở phần bình luận nhé!",
-        Hashtags = new List<string> { "#PostFlow", "#NoiDungHay" },
-        Keywords = new List<string> { request.Prompt }
-    };
 
     private sealed class GeneratedPostContent
     {

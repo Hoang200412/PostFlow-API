@@ -308,11 +308,11 @@ namespace PostFlow.Services
                         progressReporter,
                         cancellationToken);
 
-                    if (result.IsSuccess)
+                    if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.VideoId))
                     {
                         job.Status = UploadStatus.Completed;
                         job.VideoUrl = result.VideoUrl;
-                        job.PlatformPostId = result.VideoId ?? Guid.NewGuid().ToString().Substring(0, 8);
+                        job.PlatformPostId = result.VideoId;
                         job.ProgressPercentage = 100;
                         job.CompletedAt = DateTime.UtcNow;
                         job.ErrorMessage = null;
@@ -321,7 +321,7 @@ namespace PostFlow.Services
                     }
                     else
                     {
-                        throw new Exception(result.ErrorMessage ?? "Publisher trả về trạng thái thất bại.");
+                        throw new AppException(result.ErrorMessage ?? "Publisher trả về trạng thái thất bại.");
                     }
                 }
                 finally
@@ -343,7 +343,10 @@ namespace PostFlow.Services
 
                 _logger.LogError(ex, "Lỗi xảy ra trong tiến trình xuất bản Job {JobId}", jobId);
 
-                if (job.RetryCount < 3)
+                // Lỗi do cấu hình hoặc client (thiếu token, file không tồn tại, sai quyền) không thể tự hết khi retry
+                bool isNonRetryable = ex is BadRequestException || ex is NotFoundException || ex is UnauthorizedException;
+
+                if (!isNonRetryable && job.RetryCount < 3)
                 {
                     job.RetryCount++;
                     double seconds = Math.Min(Math.Pow(2, job.RetryCount) * 10, 3600);
@@ -360,7 +363,7 @@ namespace PostFlow.Services
                     job.Status = UploadStatus.DeadLetter;
                     job.ErrorMessage = ex.Message;
                     job.ErrorDetails = ex.ToString();
-                    _logger.LogError("Job {JobId} vượt quá số lần retry. Chuyển DEAD_LETTER.", job.Id);
+                    _logger.LogError("Job {JobId} thất bại hoặc vượt quá số lần retry. Chuyển DEAD_LETTER.", job.Id);
                 }
             }
             finally
