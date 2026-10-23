@@ -8,6 +8,7 @@ namespace PostFlow.Models.DTOs.Responses
         public string Narration { get; set; } = string.Empty;
         public string VisualDescription { get; set; } = string.Empty;
         public string VisualKeyword { get; set; } = string.Empty;
+        public string? ImageUrl { get; set; }
         public int Duration { get; set; } = 5;
     }
 
