@@ -26,8 +26,15 @@ public static class DatabaseExtensions
         using var scope = app.ApplicationServices.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         
-        // Chạy migration tự động
-        dbContext.Database.Migrate();
+        // Chạy migration tự động (bỏ qua lỗi nếu đang chạy qua Supabase Pooler và DB đã tồn tại)
+        try
+        {
+            dbContext.Database.Migrate();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DatabaseExtensions] Bỏ qua kiểm tra Migrate khi dùng Pooler: {ex.Message}");
+        }
 
         // Seed dữ liệu mẫu nếu DB trống
         var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();

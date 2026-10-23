@@ -52,6 +52,7 @@ try {
     builder.Services.AddHangfireConfiguration(builder.Configuration);
     builder.Services.AddApplicationServices(builder.Configuration);
     builder.Services.AddJwtAuthentication(builder.Configuration);
+    builder.Services.AddCustomRateLimiting(builder.Configuration);
     builder.Services.AddSwaggerDocumentation();
 
     var app = builder.Build();
@@ -65,10 +66,11 @@ try {
     // 4. Cấu hình Swagger UI (cho môi trường Development)
     app.UseSwaggerDocumentation();
 
-    // 5. Cấu hình Security, CORS & Authentication
+    // 5. Cấu hình Security, CORS & Authentication & Rate Limiting
     app.UseCors("AllowAll");
     app.UseAuthentication();
     app.UseAuthorization();
+    app.UseRateLimiter();
 
     // 6. Hangfire Dashboard & Background Job Scheduler
     app.UseHangfireDashboard();

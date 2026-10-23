@@ -442,11 +442,11 @@ namespace PostFlow.Services
                         using var doc = JsonDocument.Parse(responseBody);
                         var userAccessToken = doc.RootElement.GetProperty("access_token").GetString() ?? "";
 
-                        // 2. Lấy danh sách Facebook Pages của người dùng để lấy Page Access Token
-                        var pagesResp = await client.GetAsync($"https://graph.facebook.com/v19.0/me/accounts?access_token={userAccessToken}");
+                        // 2. Lấy danh sách TẤT CẢ Facebook Pages của người dùng để lấy Page Access Token
+                        var pagesResp = await client.GetAsync($"https://graph.facebook.com/v19.0/me/accounts?fields=id,name,category,access_token&access_token={userAccessToken}");
                         if (!pagesResp.IsSuccessStatusCode)
                         {
-                            throw new BadRequestException("Không thể lấy danh sách Facebook Page.");
+                            throw new BadRequestException("Không thể lấy danh sách Facebook Page từ tài khoản của bạn.");
                         }
 
                         var pagesBody = await pagesResp.Content.ReadAsStringAsync();
@@ -454,20 +454,63 @@ namespace PostFlow.Services
                         var data = pagesDoc.RootElement.GetProperty("data");
                         if (data.GetArrayLength() == 0)
                         {
-                            throw new BadRequestException("Tài khoản Facebook không quản lý Page nào.");
+                            throw new BadRequestException("Tài khoản Facebook của bạn hiện không có quyền quản lý bất kỳ Fanpage nào.");
                         }
 
-                        var firstPage = data[0];
-                        channelOrPageId = firstPage.GetProperty("id").GetString() ?? string.Empty;
-                        accountName = firstPage.GetProperty("name").GetString() ?? string.Empty;
-                        accessToken = firstPage.GetProperty("access_token").GetString() ?? string.Empty;
-                        if (string.IsNullOrWhiteSpace(channelOrPageId) ||
-                            string.IsNullOrWhiteSpace(accountName) ||
-                            string.IsNullOrWhiteSpace(accessToken))
+                        // 3. Tự động liên kết TẤT CẢ các Fanpage mà tài khoản quản lý
+                        SocialAccountDto? primaryAccountDto = null;
+                        int savedCount = 0;
+
+                        foreach (var pageElem in data.EnumerateArray())
                         {
-                            throw new BadRequestException("Facebook Page không trả về thông tin xác thực hợp lệ.");
+                            var pageId = pageElem.GetProperty("id").GetString() ?? string.Empty;
+                            var pageName = pageElem.GetProperty("name").GetString() ?? string.Empty;
+                            var pageToken = pageElem.GetProperty("access_token").GetString() ?? string.Empty;
+
+                            if (string.IsNullOrWhiteSpace(pageId) || string.IsNullOrWhiteSpace(pageToken))
+                            {
+                                continue;
+                            }
+
+                            var existingPage = await _context.SocialAccounts
+                                .FirstOrDefaultAsync(sa => sa.UserId == userId && sa.Platform == PlatformType.FacebookReels && sa.ChannelIdOrPageId == pageId);
+
+                            if (existingPage != null)
+                            {
+                                existingPage.AccessToken = pageToken;
+                                existingPage.AccountName = pageName;
+                                existingPage.IsActive = true;
+                                if (primaryAccountDto == null) primaryAccountDto = existingPage.ToDto();
+                            }
+                            else
+                            {
+                                var newPageAccount = new SocialAccount
+                                {
+                                    UserId = userId,
+                                    Platform = PlatformType.FacebookReels,
+                                    AccountName = pageName,
+                                    ChannelIdOrPageId = pageId,
+                                    AccessToken = pageToken,
+                                    IsActive = true,
+                                    CreatedAt = DateTime.UtcNow
+                                };
+                                _context.SocialAccounts.Add(newPageAccount);
+                                if (primaryAccountDto == null) primaryAccountDto = newPageAccount.ToDto();
+                            }
+
+                            savedCount++;
                         }
-                        break;
+
+                        if (savedCount == 0)
+                        {
+                            throw new BadRequestException("Không tìm thấy thông tin xác thực hợp lệ của Fanpage nào.");
+                        }
+
+                        await _context.SaveChangesAsync();
+
+                        _logger.LogInformation("Đã tự động liên kết thành công {Count} Facebook Pages cho User: {UserId}", savedCount, userId);
+
+                        return primaryAccountDto!;
                     }
             }
 

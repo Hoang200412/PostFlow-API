@@ -4,7 +4,9 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PostFlow.Exceptions;
+using PostFlow.Extensions;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
@@ -13,6 +15,7 @@ namespace PostFlow.Controllers
 {
     [ApiController]
     [Route("api/auth")]
+    [EnableRateLimiting(RateLimitingExtensions.AuthPolicy)]
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
