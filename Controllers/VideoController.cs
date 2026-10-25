@@ -3,10 +3,13 @@ using System.IO;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using System.Text.Json;
+using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
+using PostFlow.Services;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Controllers
@@ -20,17 +23,26 @@ namespace PostFlow.Controllers
         private readonly IScriptGenerationService _scriptGenService;
         private readonly IVideoCreationSessionService _sessionService;
         private readonly IStorageService _storageService;
+        private readonly IBackgroundJobClient _backgroundJobClient;
+        private readonly IScriptJobManager _scriptJobManager;
+        private readonly IVideoGenerationService _videoGenService;
 
         public VideoController(
             IVideoAssetService videoAssetService, 
             IScriptGenerationService scriptGenService,
             IVideoCreationSessionService sessionService,
-            IStorageService storageService)
+            IStorageService storageService,
+            IBackgroundJobClient backgroundJobClient,
+            IScriptJobManager scriptJobManager,
+            IVideoGenerationService videoGenService)
         {
             _videoAssetService = videoAssetService;
             _scriptGenService = scriptGenService;
             _sessionService = sessionService;
             _storageService = storageService;
+            _backgroundJobClient = backgroundJobClient;
+            _scriptJobManager = scriptJobManager;
+            _videoGenService = videoGenService;
         }
 
         private string? GetCurrentUserId() =>
@@ -193,16 +205,40 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
-        /// API Sinh kịch bản video AI theo chủ đề và Content DNA (Structured JSON)
+        /// API Sinh kịch bản video AI theo chủ đề và Content DNA (Structured JSON) đưa vào Background Job
         /// </summary>
         [HttpPost("generate-script")]
-        public async Task<IActionResult> GenerateScript([FromBody] GenerateScriptRequest request)
+        public IActionResult GenerateScript([FromBody] GenerateScriptRequest request)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var script = await _scriptGenService.GenerateScriptAsync(userId, request);
-            return Ok(script);
+            var jobId = Guid.NewGuid().ToString();
+            _scriptJobManager.CreateJob(jobId, userId);
+
+            var requestJson = JsonSerializer.Serialize(request);
+            _backgroundJobClient.Enqueue<IBackgroundJobs>(j =>
+                j.GenerateScriptJobAsync(jobId, userId, requestJson));
+
+            return Accepted(new { jobId, status = "Pending" });
+        }
+
+        /// <summary>
+        /// API Lấy trạng thái của Job sinh kịch bản AI
+        /// </summary>
+        [HttpGet("generate-script/status/{jobId}")]
+        public IActionResult GetScriptJobStatus(string jobId)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var job = _scriptJobManager.GetJob(jobId, userId);
+            if (job == null)
+            {
+                return NotFound(new { message = "Không tìm thấy tác vụ sinh kịch bản hoặc đã hết hạn." });
+            }
+
+            return Ok(job);
         }
 
         /// <summary>
@@ -253,6 +289,32 @@ namespace PostFlow.Controllers
 
             var result = await _videoAssetService.UploadConfirmAsync(userId, request);
             return Created($"/api/videos/{request.VideoId}", result);
+        }
+
+        /// <summary>
+        /// API Sinh âm thanh lồng tiếng mẫu (TTS preview) từ văn bản
+        /// </summary>
+        [HttpPost("voiceover-preview")]
+        public async Task<IActionResult> GenerateVoiceoverPreview([FromBody] GenerateVoiceoverRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var result = await _videoGenService.GenerateVoiceoverAudioAsync(userId, request);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// API Lồng tiếng vào video (thay thế hoặc hòa trộn với âm thanh gốc)
+        /// </summary>
+        [HttpPost("dub")]
+        public async Task<IActionResult> DubVideo([FromBody] DubVideoRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var result = await _videoGenService.DubVideoAsync(userId, request);
+            return Ok(result);
         }
     }
 }

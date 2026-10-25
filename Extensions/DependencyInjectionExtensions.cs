@@ -37,6 +37,7 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IScriptGenerationService, ScriptGenerationService>();
         services.AddScoped<IVideoGenerationService, VideoGenerationService>();
         services.AddScoped<IBackgroundJobs, BackgroundJobs>();
+        services.AddSingleton<IScriptJobManager, ScriptJobManager>();
 
         // Register HttpClient & MemoryCache
         services.AddHttpClient();

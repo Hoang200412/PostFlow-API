@@ -172,7 +172,7 @@ namespace PostFlow.Services
                 }
             }
 
-            var today = DateTime.Today;
+            var today = DateTime.UtcNow.Date;
             var currentQuota = await _context.ApiUsageLogs
                 .Where(l => l.UserId == userId && l.Date == today)
                 .SumAsync(l => l.CallCount);

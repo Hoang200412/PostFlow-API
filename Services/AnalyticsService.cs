@@ -21,8 +21,12 @@ namespace PostFlow.Services
 
         public async Task<object> GetSummaryAsync(string userId, DateTime? fromDate, DateTime? toDate)
         {
-            var start = fromDate ?? DateTime.UtcNow.AddDays(-30);
-            var end = toDate ?? DateTime.UtcNow;
+            var start = fromDate.HasValue
+                ? (fromDate.Value.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(fromDate.Value, DateTimeKind.Utc) : fromDate.Value.ToUniversalTime())
+                : DateTime.UtcNow.AddDays(-30);
+            var end = toDate.HasValue
+                ? (toDate.Value.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(toDate.Value, DateTimeKind.Utc) : toDate.Value.ToUniversalTime())
+                : DateTime.UtcNow;
 
             var snapshotsQuery = _context.Analytics
                 .Include(a => a.UploadJob)

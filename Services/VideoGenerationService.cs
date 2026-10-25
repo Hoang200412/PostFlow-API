@@ -11,7 +11,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PostFlow.Data;
+using PostFlow.Exceptions;
 using PostFlow.Models;
+using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
 
@@ -291,8 +293,11 @@ public class VideoGenerationService : IVideoGenerationService
     private async Task ConcatenateScenesAsync(string ffmpegPath, List<string> sceneMp4Files, string outputFinalMp4Path, string workDir)
     {
         var listFile = Path.Combine(workDir, "concat_list.txt");
-        var lines = sceneMp4Files.Select(p => $"file '{p.Replace("\\", "/")}'");
-        await File.WriteAllLinesAsync(listFile, lines, Encoding.UTF8);
+        // FFmpeg concat demuxer requires UTF-8 without BOM.
+        // Using relative filenames combined with WorkingDirectory avoids Windows path issues.
+        var lines = sceneMp4Files.Select(p => $"file '{Path.GetFileName(p)}'");
+        var utf8WithoutBom = new UTF8Encoding(false);
+        await File.WriteAllLinesAsync(listFile, lines, utf8WithoutBom);
 
         var args = $"-y -f concat -safe 0 -i \"{listFile}\" -c copy \"{outputFinalMp4Path}\"";
 
@@ -300,6 +305,7 @@ public class VideoGenerationService : IVideoGenerationService
         {
             FileName = ffmpegPath,
             Arguments = args,
+            WorkingDirectory = workDir,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
@@ -323,15 +329,25 @@ public class VideoGenerationService : IVideoGenerationService
     /// </summary>
     private static string GetFFmpegPath()
     {
-        var localPath = Path.Combine(Directory.GetCurrentDirectory(), "tools", "ffmpeg", "ffmpeg.exe");
+        // 1. Kiểm tra thư mục tools/ffmpeg tại thư mục làm việc hiện tại
+        var localPath = Path.Combine(Directory.GetCurrentDirectory(), "Tools", "ffmpeg", "ffmpeg.exe");
         if (File.Exists(localPath)) return localPath;
 
+        var lowerLocalPath = Path.Combine(Directory.GetCurrentDirectory(), "tools", "ffmpeg", "ffmpeg.exe");
+        if (File.Exists(lowerLocalPath)) return lowerLocalPath;
+
+        // 2. Kiểm tra thư mục output build
         var baseDir = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg", "ffmpeg.exe");
         if (File.Exists(baseDir)) return baseDir;
 
-        const string hardcodedDevPath = @"D:\Project\Doan\PostFlow\tools\ffmpeg\ffmpeg.exe";
+        var baseToolsDir = Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg", "ffmpeg.exe");
+        if (File.Exists(baseToolsDir)) return baseToolsDir;
+
+        // 3. Fallback: đường dẫn tuyệt đối dev
+        const string hardcodedDevPath = @"D:\Đồ án\PostFlow-API\Tools\ffmpeg\ffmpeg.exe";
         if (File.Exists(hardcodedDevPath)) return hardcodedDevPath;
 
+        // 4. Fallback: sử dụng ffmpeg từ PATH hệ thống
         return "ffmpeg";
     }
 
@@ -339,7 +355,7 @@ public class VideoGenerationService : IVideoGenerationService
     {
         try
         {
-            var today = DateTime.Today;
+            var today = DateTime.UtcNow.Date;
             var log = await _context.ApiUsageLogs
                 .FirstOrDefaultAsync(l => l.UserId == userId && l.Provider == provider && l.Date == today);
 
@@ -367,5 +383,342 @@ public class VideoGenerationService : IVideoGenerationService
         {
             _logger.LogWarning(ex, "Không thể ghi nhật ký ApiUsageLog");
         }
+    }
+
+    /// <summary>
+    /// Sinh file audio giọng đọc mẫu và lưu trữ trên Cloudflare R2
+    /// </summary>
+    public async Task<VoiceoverPreviewResponse> GenerateVoiceoverAudioAsync(
+        string userId,
+        GenerateVoiceoverRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Text))
+        {
+            throw new BadRequestException("Nội dung văn bản lồng tiếng không được để trống.");
+        }
+
+        var workDir = Path.Combine(Path.GetTempPath(), $"postflow_voiceover_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+
+        try
+        {
+            var voice = string.IsNullOrWhiteSpace(request.Voice) ? "vi-VN-NamMinhNeural" : request.Voice;
+            var audioFile = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
+
+            await GenerateTtsAudioWithParamsAsync(request.Text, voice, request.Rate, request.Pitch, audioFile, workDir);
+
+            var duration = await GetMediaDurationSecondsAsync(audioFile);
+
+            var now = DateTime.UtcNow;
+            var folderName = $"audio/voiceover/{userId}/{now:yyyy}/{now:MM}";
+            var fileName = $"{Guid.NewGuid():N}.mp3";
+
+            string objectKey;
+            using (var fs = File.OpenRead(audioFile))
+            {
+                objectKey = await _storageService.SaveFileAsync(fs, folderName, fileName, "audio/mpeg");
+            }
+
+            var audioUrl = await _storageService.GeneratePresignedDownloadUrlAsync(objectKey);
+
+            await LogApiUsageAsync(userId, "Voiceover_Preview", 1, 0.0m);
+
+            return new VoiceoverPreviewResponse
+            {
+                AudioUrl = audioUrl,
+                AudioObjectKey = objectKey,
+                DurationSeconds = duration,
+                Voice = voice,
+                Text = request.Text
+            };
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(workDir)) Directory.Delete(workDir, true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không thể xóa thư mục tạm lồng tiếng: {Dir}", workDir);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Thực hiện lồng tiếng vào video (thay thế hoặc hòa trộn với nhạc nền gốc)
+    /// </summary>
+    public async Task<VideoAssetDto> DubVideoAsync(string userId, DubVideoRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.VideoAssetId))
+        {
+            throw new BadRequestException("Vui lòng chọn video cần lồng tiếng.");
+        }
+
+        var sourceVideo = await _context.VideoAssets
+            .FirstOrDefaultAsync(v => v.Id == request.VideoAssetId && v.UserId == userId);
+
+        if (sourceVideo == null)
+        {
+            throw new NotFoundException($"Không tìm thấy video với ID {request.VideoAssetId}");
+        }
+
+        var workDir = Path.Combine(Path.GetTempPath(), $"postflow_dub_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workDir);
+
+        string? tempVideo = null;
+        string? tempAudio = null;
+
+        try
+        {
+            // 1. Tải video gốc về máy chủ
+            tempVideo = await _storageService.DownloadToTempFileAsync(sourceVideo.LocalFilePath);
+
+            // 2. Xác định file âm thanh (đã có sẵn từ preview hoặc sinh mới)
+            var audioPath = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
+            if (!string.IsNullOrWhiteSpace(request.AudioObjectKey))
+            {
+                tempAudio = await _storageService.DownloadToTempFileAsync(request.AudioObjectKey);
+                audioPath = tempAudio;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.AudioUrl))
+            {
+                tempAudio = await _storageService.DownloadToTempFileAsync(request.AudioUrl);
+                audioPath = tempAudio;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.Text))
+            {
+                var voice = string.IsNullOrWhiteSpace(request.Voice) ? "vi-VN-NamMinhNeural" : request.Voice;
+                await GenerateTtsAudioWithParamsAsync(request.Text, voice, request.Rate, request.Pitch, audioPath, workDir);
+            }
+            else
+            {
+                throw new BadRequestException("Không tìm thấy dữ liệu âm thanh hoặc văn bản để lồng tiếng.");
+            }
+
+            // 3. Kiểm tra xem video gốc có luồng audio không
+            var hasAudio = await HasAudioStreamAsync(tempVideo);
+            var ffmpeg = GetFFmpegPath();
+            var outputMp4 = Path.Combine(workDir, $"{Guid.NewGuid():N}_dubbed.mp4");
+
+            // 4. Lồng tiếng qua FFmpeg
+            var isMix = string.Equals(request.AudioMode, "mix", StringComparison.OrdinalIgnoreCase);
+
+            string args;
+            if (isMix && hasAudio)
+            {
+                // Giảm âm lượng video gốc xuống 25%, giọng lồng tiếng 100%, hòa trộn
+                args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" " +
+                       $"-filter_complex \"[0:a]volume=0.25[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]\" " +
+                       $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k \"{outputMp4}\"";
+            }
+            else
+            {
+                // Thay thế hoàn toàn âm thanh gốc
+                args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" " +
+                       $"-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -shortest \"{outputMp4}\"";
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                Arguments = args,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null) throw new InvalidOperationException("Không thể khởi động FFmpeg lồng tiếng.");
+
+            var stderr = await proc.StandardError.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+
+            if (proc.ExitCode != 0 || !File.Exists(outputMp4))
+            {
+                _logger.LogError("Lỗi FFmpeg lồng tiếng: {Stderr}", stderr);
+                throw new InvalidOperationException($"Lỗi lồng tiếng video: {stderr}");
+            }
+
+            // 5. Tính thời lượng video thành phẩm
+            var dubbedDuration = await GetMediaDurationSecondsAsync(outputMp4);
+
+            // 6. Tải video lên Cloudflare R2
+            var now = DateTime.UtcNow;
+            var folderName = $"videos/{userId}/{now:yyyy}/{now:MM}";
+            var fileName = $"{Guid.NewGuid():N}.mp4";
+
+            string objectKey;
+            using (var fs = File.OpenRead(outputMp4))
+            {
+                objectKey = await _storageService.SaveFileAsync(fs, folderName, fileName, "video/mp4");
+            }
+
+            // 7. Tạo VideoAsset mới trong DB
+            var title = !string.IsNullOrWhiteSpace(request.Title) 
+                ? request.Title 
+                : $"{sourceVideo.Title} (Lồng tiếng)";
+
+            var description = !string.IsNullOrWhiteSpace(request.Text)
+                ? $"Lồng tiếng: {request.Text}"
+                : sourceVideo.Description;
+
+            var tags = new List<string>(sourceVideo.Tags ?? new List<string>());
+            if (!tags.Contains("voiceover")) tags.Add("voiceover");
+            if (!tags.Contains("dubbed")) tags.Add("dubbed");
+
+            var dubbedAsset = new VideoAsset
+            {
+                UserId = userId,
+                Title = title,
+                Description = description,
+                Tags = tags,
+                LocalFilePath = objectKey,
+                DurationSeconds = (int)Math.Round(dubbedDuration > 0 ? dubbedDuration : sourceVideo.DurationSeconds),
+                Status = "Ready",
+                ContentDNAId = sourceVideo.ContentDNAId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.VideoAssets.Add(dubbedAsset);
+            await _context.SaveChangesAsync();
+
+            await LogApiUsageAsync(userId, "Voiceover_Dub", 1, 0.0m);
+
+            return dubbedAsset.ToDto();
+        }
+        finally
+        {
+            try
+            {
+                if (tempVideo != null && File.Exists(tempVideo)) File.Delete(tempVideo);
+                if (tempAudio != null && File.Exists(tempAudio)) File.Delete(tempAudio);
+                if (Directory.Exists(workDir)) Directory.Delete(workDir, true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không thể dọn dẹp thư mục tạm dubbing: {Dir}", workDir);
+            }
+        }
+    }
+
+    private async Task GenerateTtsAudioWithParamsAsync(string text, string voice, string? rate, string? pitch, string outputMp3Path, string workDir)
+    {
+        var textFile = Path.Combine(workDir, $"{Guid.NewGuid():N}_text.txt");
+        await File.WriteAllTextAsync(textFile, text, Encoding.UTF8);
+
+        var argsBuilder = new StringBuilder($"-m edge_tts --voice \"{voice}\"");
+
+        if (!string.IsNullOrWhiteSpace(rate) && rate != "+0%" && rate != "0%")
+        {
+            var cleanRate = rate.StartsWith("+") || rate.StartsWith("-") ? rate : $"+{rate}";
+            argsBuilder.Append($" --rate \"{cleanRate}\"");
+        }
+
+        if (!string.IsNullOrWhiteSpace(pitch) && pitch != "+0Hz" && pitch != "0Hz")
+        {
+            var cleanPitch = pitch.StartsWith("+") || pitch.StartsWith("-") ? pitch : $"+{pitch}";
+            argsBuilder.Append($" --pitch \"{cleanPitch}\"");
+        }
+
+        argsBuilder.Append($" -f \"{textFile}\" --write-media \"{outputMp3Path}\"");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "python",
+            Arguments = argsBuilder.ToString(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) throw new InvalidOperationException("Không thể khởi động tiến trình Python Edge-TTS.");
+
+        var stderr = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        try { File.Delete(textFile); } catch { }
+
+        if (process.ExitCode != 0 || !File.Exists(outputMp3Path))
+        {
+            _logger.LogError("Lỗi khi sinh giọng đọc edge-tts: {Stderr}", stderr);
+            throw new InvalidOperationException($"Không thể tạo audio từ văn bản: {stderr}");
+        }
+    }
+
+    private static string GetFFprobePath()
+    {
+        var ffmpegPath = GetFFmpegPath();
+        if (ffmpegPath.EndsWith("ffmpeg.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            var probe = ffmpegPath.Substring(0, ffmpegPath.Length - "ffmpeg.exe".Length) + "ffprobe.exe";
+            if (File.Exists(probe)) return probe;
+        }
+        return "ffprobe";
+    }
+
+    private async Task<bool> HasAudioStreamAsync(string filePath)
+    {
+        try
+        {
+            var ffprobe = GetFFprobePath();
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffprobe,
+                Arguments = $"-v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null) return false;
+
+            var stdout = (await proc.StandardOutput.ReadToEndAsync()).Trim();
+            await proc.WaitForExitAsync();
+
+            return !string.IsNullOrEmpty(stdout);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể kiểm tra luồng audio trong file: {File}", filePath);
+            return true;
+        }
+    }
+
+    private async Task<double> GetMediaDurationSecondsAsync(string filePath)
+    {
+        try
+        {
+            var ffprobe = GetFFprobePath();
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffprobe,
+                Arguments = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null) return 0;
+
+            var stdout = (await proc.StandardOutput.ReadToEndAsync()).Trim();
+            await proc.WaitForExitAsync();
+
+            if (double.TryParse(stdout, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var duration))
+            {
+                return duration;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể đọc thời lượng media: {File}", filePath);
+        }
+        return 0;
     }
 }

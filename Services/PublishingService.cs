@@ -24,6 +24,7 @@ namespace PostFlow.Services
         private readonly IStorageService _storageService;
         private readonly IBackgroundJobClient _backgroundJobClient;
         private readonly INotificationService _notificationService;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<PublishingService> _logger;
 
         public PublishingService(
@@ -32,6 +33,7 @@ namespace PostFlow.Services
             IStorageService storageService,
             IBackgroundJobClient backgroundJobClient,
             INotificationService notificationService,
+            IServiceScopeFactory serviceScopeFactory,
             ILogger<PublishingService> logger)
         {
             _context = context;
@@ -39,6 +41,7 @@ namespace PostFlow.Services
             _storageService = storageService;
             _backgroundJobClient = backgroundJobClient;
             _notificationService = notificationService;
+            _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
         }
 
@@ -177,9 +180,11 @@ namespace PostFlow.Services
                 .FirstOrDefaultAsync(j => j.Id == id && j.UserId == userId)
                 ?? throw new NotFoundException($"Không tìm thấy Job với ID {id}");
 
-            if (job.Status != UploadStatus.Pending)
+            // Cho phép hủy nếu đang Pending hoặc bị kẹt Processing quá 15 phút
+            if (job.Status != UploadStatus.Pending && 
+                !(job.Status == UploadStatus.Processing && job.CreatedAt < DateTime.UtcNow.AddMinutes(-15)))
             {
-                throw new ConflictException("Không thể hủy job đã hoàn thành hoặc đang xử lý.");
+                throw new ConflictException("Không thể hủy job đã hoàn thành hoặc đang trong tiến trình xử lý bình thường.");
             }
 
             job.Status = UploadStatus.Cancelled;
@@ -249,10 +254,13 @@ namespace PostFlow.Services
 
                 var progressReporter = new Progress<int>(async percent =>
                 {
-                    job.ProgressPercentage = percent;
                     try
                     {
-                        await _context.SaveChangesAsync(CancellationToken.None);
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var scopedContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        await scopedContext.UploadJobs
+                            .Where(j => j.Id == jobId)
+                            .ExecuteUpdateAsync(s => s.SetProperty(j => j.ProgressPercentage, percent));
                     }
                     catch (Exception ex)
                     {

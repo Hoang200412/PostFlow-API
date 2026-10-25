@@ -4,6 +4,9 @@ using Microsoft.AspNetCore.Mvc;
 using PostFlow.Extensions;
 using PostFlow.Middleware;
 
+// Cấu hình Npgsql cho phép linh hoạt kiểu DateTime tránh lỗi Kind=Local với timestamp with time zone
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 // Cấu hình Logger tĩnh Serilog trước khi khởi tạo WebApplication Host
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
