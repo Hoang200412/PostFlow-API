@@ -543,7 +543,19 @@ namespace PostFlow.Services
             };
 
             _context.SocialAccounts.Add(newAccount);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogWarning(ex, "Phát hiện race condition khi lưu SocialAccount, tiến hành nạp lại bản ghi hiện tại.");
+                var fresh = await _context.SocialAccounts
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(sa => sa.UserId == userId && sa.Platform == platform && sa.ChannelIdOrPageId == channelOrPageId);
+                if (fresh != null) return fresh.ToDto();
+                throw;
+            }
 
             _logger.LogInformation("Đã liên kết kênh {Platform} thành công cho User: {UserId}, Tên: {Name}", platform, userId, accountName);
 

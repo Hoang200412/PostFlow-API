@@ -42,6 +42,9 @@ namespace PostFlow.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Platform).HasConversion<string>();
 
+                // Đảm bảo không bị trùng lặp tài khoản cùng platform của 1 user
+                entity.HasIndex(e => new { e.UserId, e.Platform, e.ChannelIdOrPageId }).IsUnique();
+
                 // Quan hệ User 1 - n SocialAccount
                 entity.HasOne(e => e.User)
                     .WithMany(u => u.SocialAccounts)
