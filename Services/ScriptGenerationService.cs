@@ -45,7 +45,7 @@ namespace PostFlow.Services
         }
 
         /// <summary>
-        /// Sinh kịch bản video ngắn tự động bằng AI (OpenRouter hoặc Google Gemini)
+        /// Sinh kịch bản video ngắn tự động bằng Google Gemini AI
         /// </summary>
         public async Task<ScriptDto> GenerateScriptAsync(string userId, GenerateScriptRequest request)
         {
@@ -64,131 +64,34 @@ namespace PostFlow.Services
                 ? request.TargetDuration
                 : "30-45 giây";
 
-            // 1. Thử sinh qua OpenRouter API
-            var openRouterKey = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.ApiKey)
-                ? _aiSettings.OpenRouter.ApiKey
-                : Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
-
-            if (!string.IsNullOrWhiteSpace(openRouterKey))
-            {
-                try
-                {
-                    var openRouterScript = await CallOpenRouterForScriptAsync(openRouterKey, request.Topic, tone, targetDuration, request.CustomPrompt);
-                    if (openRouterScript != null && openRouterScript.Scenes.Count > 0)
-                    {
-                        await LogApiUsageAsync(userId, "OpenRouter", 1, 0.003m);
-                        return openRouterScript;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Gọi OpenRouter API thất bại, chuyển sang bộ sinh tiếp theo: {Msg}", ex.Message);
-                }
-            }
-
-            // 2. Fallback sang Google Gemini Direct API
+            // Sinh kịch bản trực tiếp qua Google Gemini API
             var geminiKey = !string.IsNullOrWhiteSpace(_aiSettings?.GeminiApiKey)
                 ? _aiSettings.GeminiApiKey
                 : Environment.GetEnvironmentVariable("GEMINI_API_KEY");
 
-            if (!string.IsNullOrWhiteSpace(geminiKey))
+            if (string.IsNullOrWhiteSpace(geminiKey))
             {
-                try
+                _logger.LogError("Thiếu cấu hình GeminiApiKey trong AISettings hoặc biến môi trường GEMINI_API_KEY.");
+                throw new BadRequestException("Hệ thống chưa được cấu hình Gemini API Key. Vui lòng kiểm tra lại cài đặt.");
+            }
+
+            try
+            {
+                var geminiScript = await CallGeminiForScriptAsync(geminiKey, request.Topic, tone, targetDuration, request.CustomPrompt);
+                if (geminiScript != null && geminiScript.Scenes.Count > 0)
                 {
-                    var geminiScript = await CallGeminiForScriptAsync(geminiKey, request.Topic, tone, targetDuration, request.CustomPrompt);
-                    if (geminiScript != null && geminiScript.Scenes.Count > 0)
-                    {
-                        await LogApiUsageAsync(userId, "Gemini", 1, 0.005m);
-                        return geminiScript;
-                    }
+                    await LogApiUsageAsync(userId, "Gemini", 1, 0.005m);
+                    return geminiScript;
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Gọi Gemini Direct API thất bại: {Msg}", ex.Message);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Gọi Google Gemini API thất bại: {Msg}", ex.Message);
+                throw new BadRequestException($"Lỗi khi kết nối với Gemini AI: {ex.Message}");
             }
 
-            _logger.LogError("Không thể sinh kịch bản AI do thiếu API Key hoặc tất cả các AI Providers đều gặp lỗi/hết quota.");
-            throw new BadRequestException("Không thể kết nối hoặc sinh kịch bản từ dịch vụ AI. Vui lòng kiểm tra lại cấu hình API Key (OpenRouter / Gemini) hoặc hạn mức Quota.");
-        }
-
-        private async Task<ScriptDto?> CallOpenRouterForScriptAsync(
-            string apiKey, 
-            string topic, 
-            string tone, 
-            string targetDuration,
-            string? customPrompt)
-        {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(60);
-
-            var url = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.BaseUrl)
-                ? _aiSettings.OpenRouter.BaseUrl
-                : "https://openrouter.ai/api/v1/chat/completions";
-
-            var models = "openrouter/free";
-
-            // var primaryModel = models.FirstOrDefault() ?? "openrouter/free";
-
-            var promptText = BuildScriptPrompt(topic, tone, targetDuration, customPrompt);
-
-            var requestBody = new
-            {
-                model = models,
-                messages = new object[]
-                {
-                    new { role = "system", content = "Bạn là AI chuyên gia sáng tạo kịch bản video ngắn triệu view. Luôn phản hồi JSON thuần túy theo đúng schema được yêu cầu." },
-                    new { role = "user", content = promptText }
-                },
-                temperature = 0.7
-            };
-
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
-            requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            requestMessage.Headers.Add("HTTP-Referer", "https://postflow.io");
-            requestMessage.Headers.Add("X-Title", "PostFlow AI");
-            requestMessage.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-
-            using var response = await client.SendAsync(requestMessage);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("OpenRouter API error {StatusCode}: {Error}", response.StatusCode, errContent);
-                return null;
-            }
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseJson);
-
-            var root = doc.RootElement;
-            var modelUsed = root.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : "openrouter/auto";
-
-            if (!root.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
-            {
-                return null;
-            }
-
-            var contentText = choices[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString();
-
-            if (string.IsNullOrWhiteSpace(contentText)) return null;
-
-            var cleanJson = ExtractJsonContent(contentText);
-            if (string.IsNullOrWhiteSpace(cleanJson)) return null;
-
-            var script = JsonSerializer.Deserialize<ScriptDto>(cleanJson, JsonOptions);
-
-            if (script != null && script.Scenes.Count > 0)
-            {
-                script.EstimatedDuration = script.Scenes.Sum(s => s.Duration);
-                script.ModelUsed = modelUsed;
-                script.ProviderUsed = "OpenRouter";
-            }
-
-            return script;
+            _logger.LogError("Không thể sinh kịch bản từ Gemini AI (kết quả trả về rỗng hoặc không đúng định dạng).");
+            throw new BadRequestException("Dịch vụ Gemini AI không phản hồi kịch bản hợp lệ. Vui lòng thử lại với chủ đề khác.");
         }
 
         private async Task<ScriptDto?> CallGeminiForScriptAsync(

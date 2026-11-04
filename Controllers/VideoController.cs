@@ -25,6 +25,7 @@ namespace PostFlow.Controllers
         private readonly IStorageService _storageService;
         private readonly IBackgroundJobClient _backgroundJobClient;
         private readonly IScriptJobManager _scriptJobManager;
+        private readonly IVoiceoverJobManager _voiceoverJobManager;
         private readonly IVideoGenerationService _videoGenService;
 
         public VideoController(
@@ -34,6 +35,7 @@ namespace PostFlow.Controllers
             IStorageService storageService,
             IBackgroundJobClient backgroundJobClient,
             IScriptJobManager scriptJobManager,
+            IVoiceoverJobManager voiceoverJobManager,
             IVideoGenerationService videoGenService)
         {
             _videoAssetService = videoAssetService;
@@ -42,6 +44,7 @@ namespace PostFlow.Controllers
             _storageService = storageService;
             _backgroundJobClient = backgroundJobClient;
             _scriptJobManager = scriptJobManager;
+            _voiceoverJobManager = voiceoverJobManager;
             _videoGenService = videoGenService;
         }
 
@@ -292,16 +295,40 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
-        /// API Sinh âm thanh lồng tiếng mẫu (TTS preview) từ văn bản
+        /// API Sinh âm thanh lồng tiếng mẫu (TTS preview) từ văn bản đưa vào Background Job
         /// </summary>
         [HttpPost("voiceover-preview")]
-        public async Task<IActionResult> GenerateVoiceoverPreview([FromBody] GenerateVoiceoverRequest request)
+        public IActionResult GenerateVoiceoverPreview([FromBody] GenerateVoiceoverRequest request)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var result = await _videoGenService.GenerateVoiceoverAudioAsync(userId, request);
-            return Ok(result);
+            var jobId = Guid.NewGuid().ToString();
+            _voiceoverJobManager.CreateJob(jobId, userId);
+
+            var requestJson = JsonSerializer.Serialize(request);
+            _backgroundJobClient.Enqueue<IBackgroundJobs>(j =>
+                j.GenerateVoiceoverJobAsync(jobId, userId, requestJson));
+
+            return Accepted(new { jobId, status = "Pending" });
+        }
+
+        /// <summary>
+        /// API Lấy trạng thái của Job sinh giọng đọc mẫu
+        /// </summary>
+        [HttpGet("voiceover-preview/status/{jobId}")]
+        public IActionResult GetVoiceoverJobStatus(string jobId)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var job = _voiceoverJobManager.GetJob(jobId, userId);
+            if (job == null)
+            {
+                return NotFound(new { message = "Không tìm thấy tác vụ sinh giọng đọc hoặc đã hết hạn." });
+            }
+
+            return Ok(job);
         }
 
         /// <summary>

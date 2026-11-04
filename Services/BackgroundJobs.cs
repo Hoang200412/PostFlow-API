@@ -25,6 +25,10 @@ namespace PostFlow.Services
             string jobId,
             string userId,
             string requestJson);
+        Task GenerateVoiceoverJobAsync(
+            string jobId,
+            string userId,
+            string requestJson);
         Task GatherAnalyticsJobAsync();
     }
 
@@ -35,6 +39,7 @@ namespace PostFlow.Services
         private readonly IPublishingService _publishingService;
         private readonly IScriptGenerationService _scriptGenService;
         private readonly IScriptJobManager _scriptJobManager;
+        private readonly IVoiceoverJobManager _voiceoverJobManager;
         private readonly INotificationService _notificationService;
         private readonly ILogger<BackgroundJobs> _logger;
 
@@ -44,6 +49,7 @@ namespace PostFlow.Services
             IPublishingService publishingService,
             IScriptGenerationService scriptGenService,
             IScriptJobManager scriptJobManager,
+            IVoiceoverJobManager voiceoverJobManager,
             INotificationService notificationService,
             ILogger<BackgroundJobs> logger)
         {
@@ -52,6 +58,7 @@ namespace PostFlow.Services
             _publishingService = publishingService;
             _scriptGenService = scriptGenService;
             _scriptJobManager = scriptJobManager;
+            _voiceoverJobManager = voiceoverJobManager;
             _notificationService = notificationService;
             _logger = logger;
         }
@@ -262,6 +269,77 @@ namespace PostFlow.Services
                 catch (Exception notifEx)
                 {
                     _logger.LogWarning(notifEx, "Không thể gửi thông báo lỗi kịch bản: {Msg}", notifEx.Message);
+                }
+            }
+        }
+
+        public async Task GenerateVoiceoverJobAsync(
+            string jobId,
+            string userId,
+            string requestJson)
+        {
+            try
+            {
+                _logger.LogInformation("Bắt đầu thực thi Background Job sinh giọng đọc mẫu. JobId: {JobId}, UserId: {UserId}", jobId, userId);
+                _voiceoverJobManager.SetProcessing(jobId);
+
+                var request = JsonSerializer.Deserialize<GenerateVoiceoverRequest>(requestJson, (JsonSerializerOptions?)null);
+                if (request == null)
+                {
+                    _logger.LogError("Không thể giải mã dữ liệu GenerateVoiceoverRequest cho JobId: {JobId}", jobId);
+                    _voiceoverJobManager.SetFailed(jobId, "Dữ liệu yêu cầu lồng tiếng không hợp lệ.");
+                    return;
+                }
+
+                var result = await _videoGenService.GenerateVoiceoverAudioAsync(userId, request);
+                _voiceoverJobManager.SetCompleted(jobId, result);
+
+                // Gửi thông báo realtime cho người dùng
+                try
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        userId,
+                        title: "Sinh giọng đọc mẫu thành công!",
+                        message: $"Đoạn audio giọng đọc \"{result.Voice}\" ({result.DurationSeconds:F1}s) đã sẵn sàng để nghe thử.",
+                        type: NotificationType.Success,
+                        actionUrl: "/voiceover",
+                        metadata: new
+                        {
+                            jobId,
+                            type = "VOICEOVER_GENERATED",
+                            audioUrl = result.AudioUrl,
+                            voice = result.Voice,
+                            duration = result.DurationSeconds
+                        }
+                    );
+                    _logger.LogInformation("Đã gửi thông báo VOICEOVER_GENERATED thành công cho User: {UserId}", userId);
+                }
+                catch (Exception notifEx)
+                {
+                    _logger.LogWarning(notifEx, "Không thể gửi thông báo giọng đọc thành công: {Msg}", notifEx.Message);
+                }
+
+                _logger.LogInformation("Job sinh giọng đọc mẫu hoàn tất thành công! JobId: {JobId}, AudioUrl: {Url}", jobId, result.AudioUrl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi trong tiến trình GenerateVoiceoverJobAsync cho JobId: {JobId}", jobId);
+                _voiceoverJobManager.SetFailed(jobId, ex.Message);
+
+                try
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        userId,
+                        title: "Sinh giọng đọc mẫu thất bại",
+                        message: $"Không thể tạo giọng đọc: {ex.Message}",
+                        type: NotificationType.Error,
+                        actionUrl: "/voiceover",
+                        metadata: new { jobId, type = "VOICEOVER_FAILED", error = ex.Message }
+                    );
+                }
+                catch (Exception notifEx)
+                {
+                    _logger.LogWarning(notifEx, "Không thể gửi thông báo lỗi giọng đọc: {Msg}", notifEx.Message);
                 }
             }
         }
