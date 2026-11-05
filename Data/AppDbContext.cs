@@ -23,6 +23,7 @@ namespace PostFlow.Data
         public DbSet<Notification> Notifications { get; set; } = null!;
         public DbSet<VideoCreationSession> VideoCreationSessions { get; set; } = null!;
         public DbSet<Post> Posts { get; set; } = null!;
+        public DbSet<MediaLibraryAsset> MediaLibraryAssets { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -69,6 +70,19 @@ namespace PostFlow.Data
                 (c1, c2) => c1 == null && c2 == null || (c1 != null && c2 != null && c1.SequenceEqual(c2)),
                 c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                 c => c.ToList());
+
+            modelBuilder.Entity<MediaLibraryAsset>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Tags)
+                    .HasColumnType("jsonb")
+                    .HasConversion(
+                        v => JsonSerializer.Serialize(v, (JsonSerializerOptions)null!),
+                        v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions)null!) ?? new List<string>());
+                entity.Property(e => e.Tags).Metadata.SetValueComparer(stringListComparer);
+                entity.HasIndex(e => new { e.Type, e.IsActive });
+                entity.HasIndex(e => e.CreatedAt);
+            });
 
             // 4. Cấu hình bảng VideoAsset
             modelBuilder.Entity<VideoAsset>(entity =>

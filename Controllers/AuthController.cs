@@ -145,7 +145,9 @@ namespace PostFlow.Controllers
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,             // Ngăn JavaScript truy cập (Chống XSS)
-                Secure = true,               // Chỉ gửi qua HTTPS
+                Secure = !HttpContext.RequestServices
+                    .GetRequiredService<IWebHostEnvironment>()
+                    .IsDevelopment(),       // Local HTTP cần dùng được; production bắt buộc HTTPS
                 SameSite = SameSiteMode.Lax, // Chống CSRF
                 Expires = DateTime.UtcNow.AddDays(7) // Hạn sử dụng cookie đồng bộ với Refresh Token
             };

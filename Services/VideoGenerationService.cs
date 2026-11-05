@@ -644,7 +644,7 @@ public class VideoGenerationService : IVideoGenerationService
         if (process.ExitCode != 0 || !File.Exists(outputMp3Path))
         {
             _logger.LogError("Lỗi khi sinh giọng đọc edge-tts: {Stderr}", stderr);
-            throw new InvalidOperationException($"Không thể tạo audio từ văn bản: {stderr}");
+            throw new InvalidOperationException($"Không thể tạo audio từ văn bản");
         }
     }
 

@@ -1,4 +1,4 @@
-@PostFlow_HostAddress = http://localhost:5042
+@PostFlow_HostAddress = http://localhost:8080
 
 ### =================================================================
 ### 1. VIDEO ASSET MANAGEMENT (/api/videos)

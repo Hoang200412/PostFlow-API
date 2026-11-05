@@ -4,6 +4,7 @@ using PostFlow.Models;
 using PostFlow.Services;
 using PostFlow.Services.Interfaces;
 using PostFlow.Services.Publishers;
+using PostFlow.Services.StockVideo;
 
 namespace PostFlow.Extensions;
 
@@ -22,6 +23,7 @@ public static class DependencyInjectionExtensions
         services.Configure<PlatformSettings>(configuration.GetSection("PlatformSettings"));
         services.Configure<CloudflareR2Settings>(configuration.GetSection("CloudflareR2"));
         services.Configure<AISettings>(configuration.GetSection("AI"));
+        services.Configure<StockVideoSettings>(configuration.GetSection("StockVideo"));
 
         // Register Platform-specific publishers
         services.AddTransient<ISocialPublisher, YouTubePublisher>();
@@ -39,6 +41,12 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IBackgroundJobs, BackgroundJobs>();
         services.AddSingleton<IScriptJobManager, ScriptJobManager>();
         services.AddSingleton<IVoiceoverJobManager, VoiceoverJobManager>();
+        services.AddSingleton<MotionVideoJobManager>();
+        services.AddScoped<IMotionVideoService, MotionVideoService>();
+        services.AddScoped<IMediaLibraryService, MediaLibraryService>();
+        services.AddScoped<MotionVideoBackgroundJobs>();
+        services.AddHttpClient<PexelsStockVideoProvider>();
+        services.AddScoped<IStockVideoProvider, PexelsStockVideoProvider>();
 
         // Register HttpClient & MemoryCache
         services.AddHttpClient();
