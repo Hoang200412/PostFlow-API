@@ -41,6 +41,7 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IBackgroundJobs, BackgroundJobs>();
         services.AddSingleton<IScriptJobManager, ScriptJobManager>();
         services.AddSingleton<IVoiceoverJobManager, VoiceoverJobManager>();
+        services.AddSingleton<IDubVideoJobManager, DubVideoJobManager>();
         services.AddSingleton<MotionVideoJobManager>();
         services.AddScoped<IMotionVideoService, MotionVideoService>();
         services.AddScoped<IMediaLibraryService, MediaLibraryService>();

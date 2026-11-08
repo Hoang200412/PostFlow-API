@@ -468,6 +468,7 @@ public class VideoGenerationService : IVideoGenerationService
 
         string? tempVideo = null;
         string? tempAudio = null;
+        string? tempMusic = null;
 
         try
         {
@@ -503,11 +504,31 @@ public class VideoGenerationService : IVideoGenerationService
 
             // 4. Lồng tiếng qua FFmpeg
             var isMix = string.Equals(request.AudioMode, "mix", StringComparison.OrdinalIgnoreCase);
+            var hasMusic = !string.IsNullOrWhiteSpace(request.BackgroundMusicObjectKey);
+            if (hasMusic)
+            {
+                tempMusic = await _storageService.DownloadToTempFileAsync(request.BackgroundMusicObjectKey!);
+            }
 
             string args;
-            if (isMix && hasAudio)
+            if (hasMusic)
             {
-                // Giảm âm lượng video gốc xuống 25%, giọng lồng tiếng 100%, hòa trộn
+                var musicInput = $"-stream_loop -1 -i \"{tempMusic}\"";
+                if (isMix && hasAudio)
+                {
+                    args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" {musicInput} " +
+                           $"-filter_complex \"[0:a]volume=0.25[a0];[1:a]volume=1.0[a1];[2:a]volume=0.18[a2];[a0][a1][a2]amix=inputs=3:duration=first:dropout_transition=2[aout]\" " +
+                           $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k -shortest \"{outputMp4}\"";
+                }
+                else
+                {
+                    args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" {musicInput} " +
+                           $"-filter_complex \"[1:a]volume=1.0[a1];[2:a]volume=0.18[a2];[a1][a2]amix=inputs=2:duration=longest:dropout_transition=2[aout]\" " +
+                           $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k -shortest \"{outputMp4}\"";
+                }
+            }
+            else if (isMix && hasAudio)
+            {
                 args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" " +
                        $"-filter_complex \"[0:a]volume=0.25[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]\" " +
                        $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k \"{outputMp4}\"";
@@ -593,6 +614,7 @@ public class VideoGenerationService : IVideoGenerationService
             {
                 if (tempVideo != null && File.Exists(tempVideo)) File.Delete(tempVideo);
                 if (tempAudio != null && File.Exists(tempAudio)) File.Delete(tempAudio);
+                if (tempMusic != null && File.Exists(tempMusic)) File.Delete(tempMusic);
                 if (Directory.Exists(workDir)) Directory.Delete(workDir, true);
             }
             catch (Exception ex)
