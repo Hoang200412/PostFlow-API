@@ -182,6 +182,44 @@ namespace PostFlow.Controllers
         }
 
         /// <summary>
+        /// API Tải lên file âm thanh (nhạc nền BGM hoặc audio tùy chỉnh)
+        /// </summary>
+        [HttpPost("upload-audio")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadAudio([FromForm] AudioUploadRequest request)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            if (request.File == null || request.File.Length == 0)
+            {
+                return BadRequest(new { message = "Vui lòng chọn file âm thanh hợp lệ." });
+            }
+
+            var allowedExtensions = new[] { ".mp3", ".wav", ".m4a", ".aac", ".ogg" };
+            var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(extension))
+            {
+                return BadRequest(new { message = "Chỉ chấp nhận định dạng âm thanh (.mp3, .wav, .m4a, .aac, .ogg)." });
+            }
+
+            var folderName = $"audio/bgm/{userId}/{DateTime.UtcNow:yyyy}/{DateTime.UtcNow:MM}";
+            var fileName = $"{Guid.NewGuid():N}{extension}";
+
+            using var stream = request.File.OpenReadStream();
+            var relativePath = await _storageService.SaveFileAsync(stream, folderName, fileName, request.File.ContentType);
+            var publicUrl = await _storageService.GeneratePresignedDownloadUrlAsync(relativePath, 24 * 365);
+
+            return Ok(new
+            {
+                url = publicUrl,
+                path = relativePath,
+                fileName = request.File.FileName,
+                size = request.File.Length
+            });
+        }
+
+        /// <summary>
         /// API Xóa video tài sản theo ID (Xóa file vật lý và dữ liệu DB)
         /// </summary>
         [HttpDelete("{id}")]

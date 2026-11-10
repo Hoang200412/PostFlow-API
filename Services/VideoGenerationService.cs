@@ -468,13 +468,14 @@ public class VideoGenerationService : IVideoGenerationService
 
         string? tempVideo = null;
         string? tempAudio = null;
+        string? tempBgm = null;
 
         try
         {
             // 1. Tải video gốc về máy chủ
             tempVideo = await _storageService.DownloadToTempFileAsync(sourceVideo.LocalFilePath);
 
-            // 2. Xác định file âm thanh (đã có sẵn từ preview hoặc sinh mới)
+            // 2. Xác định file âm thanh giọng đọc (đã có sẵn từ preview hoặc sinh mới)
             var audioPath = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
             if (!string.IsNullOrWhiteSpace(request.AudioObjectKey))
             {
@@ -496,28 +497,99 @@ public class VideoGenerationService : IVideoGenerationService
                 throw new BadRequestException("Không tìm thấy dữ liệu âm thanh hoặc văn bản để lồng tiếng.");
             }
 
-            // 3. Kiểm tra xem video gốc có luồng audio không
+            // 3. Tải file nhạc nền (Track 3: BGM) nếu có
+            string? bgmPath = null;
+            if (!string.IsNullOrWhiteSpace(request.BgmObjectKey))
+            {
+                tempBgm = await _storageService.DownloadToTempFileAsync(request.BgmObjectKey);
+                bgmPath = tempBgm;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.BgmUrl))
+            {
+                if (request.BgmUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    request.BgmUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    tempBgm = await _storageService.DownloadToTempFileAsync(request.BgmUrl);
+                    bgmPath = tempBgm;
+                }
+                else if (File.Exists(request.BgmUrl))
+                {
+                    bgmPath = request.BgmUrl;
+                }
+            }
+
+            // 4. Kiểm tra xem video gốc có luồng audio không
             var hasAudio = await HasAudioStreamAsync(tempVideo);
             var ffmpeg = GetFFmpegPath();
             var outputMp4 = Path.Combine(workDir, $"{Guid.NewGuid():N}_dubbed.mp4");
 
-            // 4. Lồng tiếng qua FFmpeg
+            // 5. Xây dựng bộ lọc hòa âm đa luồng (3-Track Filter Complex)
             var isMix = string.Equals(request.AudioMode, "mix", StringComparison.OrdinalIgnoreCase);
+            var origVol = isMix ? Math.Clamp(request.OriginalAudioVolume, 0.0, 2.0) : 0.0;
+            var voiceVol = Math.Clamp(request.VoiceVolume > 0 ? request.VoiceVolume : 1.0, 0.0, 3.0);
+            var voiceDelayMs = (int)Math.Max(0, Math.Round(request.StartTimeSeconds * 1000));
 
-            string args;
-            if (isMix && hasAudio)
+            var filterChains = new List<string>();
+            var mixInputs = new List<string>();
+
+            // Luồng Track 1: Tiếng gốc video
+            if (hasAudio && origVol > 0.001)
             {
-                // Giảm âm lượng video gốc xuống 25%, giọng lồng tiếng 100%, hòa trộn
-                args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" " +
-                       $"-filter_complex \"[0:a]volume=0.25[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]\" " +
-                       $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k \"{outputMp4}\"";
+                var origVolStr = origVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+                filterChains.Add($"[0:a]volume={origVolStr}[a_orig]");
+                mixInputs.Add("[a_orig]");
+            }
+
+            // Luồng Track 2: Giọng đọc thuyết minh (Voiceover) có hỗ trợ Offset (adelay)
+            var voiceVolStr = voiceVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+            if (voiceDelayMs > 0)
+            {
+                filterChains.Add($"[1:a]adelay={voiceDelayMs}|{voiceDelayMs},volume={voiceVolStr}[a_voice]");
             }
             else
             {
-                // Thay thế hoàn toàn âm thanh gốc
-                args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" " +
-                       $"-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -shortest \"{outputMp4}\"";
+                filterChains.Add($"[1:a]volume={voiceVolStr}[a_voice]");
             }
+            mixInputs.Add("[a_voice]");
+
+            // Luồng Track 3: Nhạc nền BGM (nếu có)
+            var bgmInputArg = "";
+            if (bgmPath != null)
+            {
+                var bgmVol = Math.Clamp(request.BgmVolume >= 0 ? request.BgmVolume : 0.2, 0.0, 2.0);
+                var bgmVolStr = bgmVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+                var bgmDelayMs = (int)Math.Max(0, Math.Round(request.BgmStartTimeSeconds * 1000));
+
+                if (bgmVol > 0.001)
+                {
+                    bgmInputArg = $"-stream_loop -1 -i \"{bgmPath}\" ";
+                    if (bgmDelayMs > 0)
+                    {
+                        filterChains.Add($"[2:a]adelay={bgmDelayMs}|{bgmDelayMs},volume={bgmVolStr}[a_bgm]");
+                    }
+                    else
+                    {
+                        filterChains.Add($"[2:a]volume={bgmVolStr}[a_bgm]");
+                    }
+                    mixInputs.Add("[a_bgm]");
+                }
+            }
+
+            // Hòa âm các luồng
+            if (mixInputs.Count > 1)
+            {
+                filterChains.Add($"{string.Join("", mixInputs)}amix=inputs={mixInputs.Count}:duration=longest[amix]");
+                filterChains.Add("[amix]apad[aout]");
+            }
+            else
+            {
+                filterChains.Add($"{mixInputs[0]}apad[aout]");
+            }
+
+            var filterComplex = string.Join(";", filterChains);
+            var args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" {bgmInputArg}" +
+                       $"-filter_complex \"{filterComplex}\" " +
+                       $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k -shortest \"{outputMp4}\"";
 
             var psi = new ProcessStartInfo
             {
@@ -593,6 +665,7 @@ public class VideoGenerationService : IVideoGenerationService
             {
                 if (tempVideo != null && File.Exists(tempVideo)) File.Delete(tempVideo);
                 if (tempAudio != null && File.Exists(tempAudio)) File.Delete(tempAudio);
+                if (tempBgm != null && File.Exists(tempBgm)) File.Delete(tempBgm);
                 if (Directory.Exists(workDir)) Directory.Delete(workDir, true);
             }
             catch (Exception ex)
