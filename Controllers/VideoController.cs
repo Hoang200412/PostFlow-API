@@ -26,6 +26,7 @@ namespace PostFlow.Controllers
         private readonly IBackgroundJobClient _backgroundJobClient;
         private readonly IScriptJobManager _scriptJobManager;
         private readonly IVoiceoverJobManager _voiceoverJobManager;
+        private readonly IDubVideoJobManager _dubVideoJobManager;
         private readonly IVideoGenerationService _videoGenService;
 
         public VideoController(
@@ -36,6 +37,7 @@ namespace PostFlow.Controllers
             IBackgroundJobClient backgroundJobClient,
             IScriptJobManager scriptJobManager,
             IVoiceoverJobManager voiceoverJobManager,
+            IDubVideoJobManager dubVideoJobManager,
             IVideoGenerationService videoGenService)
         {
             _videoAssetService = videoAssetService;
@@ -45,6 +47,7 @@ namespace PostFlow.Controllers
             _backgroundJobClient = backgroundJobClient;
             _scriptJobManager = scriptJobManager;
             _voiceoverJobManager = voiceoverJobManager;
+            _dubVideoJobManager = dubVideoJobManager;
             _videoGenService = videoGenService;
         }
 
@@ -134,12 +137,14 @@ namespace PostFlow.Controllers
         /// </summary>
         [HttpPost("upload")]
         [Consumes("multipart/form-data")]
+        [RequestSizeLimit(500L * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 500L * 1024 * 1024)]
         public async Task<IActionResult> Upload([FromForm] VideoUploadRequest request)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var video = await _videoAssetService.UploadVideoAsync(userId, request.File, request.Title, request.Description, request.GetTagList());
+            var video = await _videoAssetService.UploadVideoAsync(userId, request.File, request.Title, request.Description, request.GetTagList(), request.DurationSeconds);
             return Ok(video);
         }
 
@@ -313,6 +318,7 @@ namespace PostFlow.Controllers
         /// </summary>
         [AllowAnonymous]
         [HttpPut("upload-binary/{videoId}")]
+        [RequestSizeLimit(500L * 1024 * 1024)]
         public async Task<IActionResult> UploadBinary(string videoId)
         {
             var result = await _videoAssetService.UploadBinaryAsync(videoId, Request.Body);
@@ -373,13 +379,30 @@ namespace PostFlow.Controllers
         /// API Lồng tiếng vào video (thay thế hoặc hòa trộn với âm thanh gốc)
         /// </summary>
         [HttpPost("dub")]
-        public async Task<IActionResult> DubVideo([FromBody] DubVideoRequest request)
+        public IActionResult DubVideo([FromBody] DubVideoRequest request)
         {
             var userId = GetCurrentUserId();
             if (string.IsNullOrEmpty(userId)) return Unauthorized();
 
-            var result = await _videoGenService.DubVideoAsync(userId, request);
-            return Ok(result);
+            var jobId = Guid.NewGuid().ToString();
+            _dubVideoJobManager.CreateJob(jobId, userId);
+            var requestJson = JsonSerializer.Serialize(request);
+            _backgroundJobClient.Enqueue<IBackgroundJobs>(job =>
+                job.DubVideoJobAsync(jobId, userId, requestJson));
+
+            return Accepted(new { jobId, status = "Pending" });
+        }
+
+        [HttpGet("dub/status/{jobId}")]
+        public IActionResult GetDubVideoJobStatus(string jobId)
+        {
+            var userId = GetCurrentUserId();
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var job = _dubVideoJobManager.GetJob(jobId, userId);
+            return job == null
+                ? NotFound(new { message = "Không tìm thấy tác vụ lồng tiếng hoặc đã hết hạn." })
+                : Ok(job);
         }
     }
 }

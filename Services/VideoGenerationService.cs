@@ -469,6 +469,7 @@ public class VideoGenerationService : IVideoGenerationService
         string? tempVideo = null;
         string? tempAudio = null;
         string? tempBgm = null;
+        string? tempMusic = null;
 
         try
         {
@@ -497,11 +498,15 @@ public class VideoGenerationService : IVideoGenerationService
                 throw new BadRequestException("Không tìm thấy dữ liệu âm thanh hoặc văn bản để lồng tiếng.");
             }
 
-            // 3. Tải file nhạc nền (Track 3: BGM) nếu có
+            // 3. Tải file nhạc nền (Track 3: BGM) nếu có (hỗ trợ cả BgmObjectKey và BackgroundMusicObjectKey)
             string? bgmPath = null;
-            if (!string.IsNullOrWhiteSpace(request.BgmObjectKey))
+            var musicKey = !string.IsNullOrWhiteSpace(request.BgmObjectKey)
+                ? request.BgmObjectKey
+                : request.BackgroundMusicObjectKey;
+
+            if (!string.IsNullOrWhiteSpace(musicKey))
             {
-                tempBgm = await _storageService.DownloadToTempFileAsync(request.BgmObjectKey);
+                tempBgm = await _storageService.DownloadToTempFileAsync(musicKey);
                 bgmPath = tempBgm;
             }
             else if (!string.IsNullOrWhiteSpace(request.BgmUrl))
@@ -666,6 +671,7 @@ public class VideoGenerationService : IVideoGenerationService
                 if (tempVideo != null && File.Exists(tempVideo)) File.Delete(tempVideo);
                 if (tempAudio != null && File.Exists(tempAudio)) File.Delete(tempAudio);
                 if (tempBgm != null && File.Exists(tempBgm)) File.Delete(tempBgm);
+                if (tempMusic != null && File.Exists(tempMusic)) File.Delete(tempMusic);
                 if (Directory.Exists(workDir)) Directory.Delete(workDir, true);
             }
             catch (Exception ex)

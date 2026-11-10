@@ -12,7 +12,7 @@ namespace PostFlow.Services.Interfaces
         Task<PagedResult<VideoAssetDto>> GetListAsync(string userId, int page, int limit);
         Task<VideoAssetDto> GetByIdAsync(string userId, string id);
         Task<VideoAssetDto> UpdateAsync(string userId, string id, VideoUpdateRequest request);
-        Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags);
+        Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags, int? durationSeconds = null);
         Task DeleteAsync(string userId, string id);
         Task BatchDeleteAsync(string userId, List<string> ids);
         Task<object> GenerateAsync(string userId, VideoGenerateRequest request);

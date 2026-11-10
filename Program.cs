@@ -24,6 +24,20 @@ try {
     // Kích hoạt Serilog làm logger chính của ứng dụng
     builder.Host.UseSerilog();
 
+    // Cấu hình Kestrel cho phép tải file kích thước lớn (tối đa 500MB theo cấu hình R2)
+    builder.WebHost.ConfigureKestrel(serverOptions =>
+    {
+        serverOptions.Limits.MaxRequestBodySize = 524_288_000; // 500 MB
+    });
+
+    // Cấu hình FormOptions cho phép Multipart Form upload file lớn
+    builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+    {
+        options.MultipartBodyLengthLimit = 524_288_000; // 500 MB
+        options.ValueLengthLimit = int.MaxValue;
+        options.MultipartHeadersLengthLimit = int.MaxValue;
+    });
+
     // 1. Đăng ký Controllers & Các dịch vụ mở rộng
     builder.Services.AddControllers()
         .ConfigureApiBehaviorOptions(options =>

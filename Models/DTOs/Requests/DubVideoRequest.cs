@@ -10,6 +10,7 @@ namespace PostFlow.Models.DTOs.Requests
         public string? Rate { get; set; }
         public string? Pitch { get; set; }
         public string AudioMode { get; set; } = "mix"; // "replace" (thay thế) hoặc "mix" (hòa trộn)
+        public string? BackgroundMusicObjectKey { get; set; } // Hỗ trợ tương thích ngược
         public string? Title { get; set; }
 
         // Timeline & Multi-track controls

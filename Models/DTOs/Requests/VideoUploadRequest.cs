@@ -15,6 +15,8 @@ namespace PostFlow.Models.DTOs.Requests
 
         public string? Tags { get; set; }
 
+        public int? DurationSeconds { get; set; }
+
         public List<string> GetTagList()
         {
             if (string.IsNullOrWhiteSpace(Tags)) return new List<string>();

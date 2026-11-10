@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -88,7 +89,7 @@ namespace PostFlow.Services
             return video.ToDto();
         }
 
-        public async Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags)
+        public async Task<VideoAssetDto> UploadVideoAsync(string userId, IFormFile file, string? title, string? description, List<string>? tags, int? durationSeconds = null)
         {
             if (file.Length <= 0)
             {
@@ -116,10 +117,42 @@ namespace PostFlow.Services
             var folderName = $"videos/{userId}/{now:yyyy}/{now:MM}";
             var fileName = $"{video.Id}{ext}";
 
-            using var stream = file.OpenReadStream();
-            var storagePath = await _storageService.SaveFileAsync(stream, folderName, fileName, file.ContentType);
+            var finalDuration = durationSeconds.GetValueOrDefault();
 
-            video.LocalFilePath = storagePath;
+            // Nếu FE không truyền hoặc thời lượng <= 0, fallback trích xuất qua ffprobe
+            if (finalDuration <= 0)
+            {
+                var tempFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{ext}");
+                try
+                {
+                    await using (var fs = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        await file.CopyToAsync(fs);
+                    }
+
+                    // Trích xuất thời lượng thực tế của video qua ffprobe
+                    finalDuration = await GetVideoDurationSecondsAsync(tempFilePath);
+
+                    await using (var readStream = File.OpenRead(tempFilePath))
+                    {
+                        var storagePath = await _storageService.SaveFileAsync(readStream, folderName, fileName, file.ContentType);
+                        video.LocalFilePath = storagePath;
+                    }
+                }
+                finally
+                {
+                    try { if (File.Exists(tempFilePath)) File.Delete(tempFilePath); } catch { }
+                }
+            }
+            else
+            {
+                // FE đã tính và truyền thời lượng hợp lệ -> stream thẳng lên R2, không cần ghi đĩa local
+                using var stream = file.OpenReadStream();
+                var storagePath = await _storageService.SaveFileAsync(stream, folderName, fileName, file.ContentType);
+                video.LocalFilePath = storagePath;
+            }
+
+            video.DurationSeconds = finalDuration;
             _context.VideoAssets.Add(video);
             await _context.SaveChangesAsync();
 
@@ -268,27 +301,41 @@ namespace PostFlow.Services
             var folderName = $"videos/{video.UserId}/{now:yyyy}/{now:MM}";
             var fileName = $"{videoId}{ext}";
 
-            using var ms = new MemoryStream();
-            await bodyStream.CopyToAsync(ms);
-            ms.Position = 0;
-
-            if (ms.Length == 0)
+            var tempFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{ext}");
+            try
             {
-                throw new BadRequestException("Không tìm thấy nội dung file upload.");
-            }
+                await using (var fs = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    await bodyStream.CopyToAsync(fs);
+                }
 
-            if (ms.Length > _r2Settings.MaxFileSizeBytes)
+                var fileInfo = new FileInfo(tempFilePath);
+                if (fileInfo.Length == 0)
+                {
+                    throw new BadRequestException("Không tìm thấy nội dung file upload.");
+                }
+
+                if (fileInfo.Length > _r2Settings.MaxFileSizeBytes)
+                {
+                    throw new PayloadTooLargeException($"Dung lượng file vượt quá giới hạn cho phép ({_r2Settings.MaxFileSizeMB}MB).");
+                }
+
+                var duration = await GetVideoDurationSecondsAsync(tempFilePath);
+                video.DurationSeconds = duration > 0 ? duration : 30;
+
+                await using (var readStream = File.OpenRead(tempFilePath))
+                {
+                    var storagePath = await _storageService.SaveFileAsync(readStream, folderName, fileName, "video/mp4");
+                    video.LocalFilePath = storagePath;
+                }
+
+                await _context.SaveChangesAsync();
+                return new { message = "Upload successful", localPath = video.LocalFilePath };
+            }
+            finally
             {
-                throw new PayloadTooLargeException($"Dung lượng file vượt quá giới hạn cho phép ({_r2Settings.MaxFileSizeMB}MB).");
+                try { if (File.Exists(tempFilePath)) File.Delete(tempFilePath); } catch { }
             }
-
-            var storagePath = await _storageService.SaveFileAsync(ms, folderName, fileName, "video/mp4");
-
-            video.LocalFilePath = storagePath;
-            video.DurationSeconds = 30;
-            await _context.SaveChangesAsync();
-
-            return new { message = "Upload successful", localPath = storagePath };
         }
 
         public async Task<object> UploadConfirmAsync(string userId, UploadConfirmRequest request)
@@ -312,6 +359,25 @@ namespace PostFlow.Services
             {
                 await _storageService.DeleteFileAsync(video.LocalFilePath);
                 throw new PayloadTooLargeException($"Dung lượng file thực tế ({actualSize / (1024 * 1024)}MB) vượt quá giới hạn cho phép ({_r2Settings.MaxFileSizeMB}MB).");
+            }
+
+            // Trích xuất thời lượng nếu chưa có
+            if (video.DurationSeconds <= 0 && !string.IsNullOrEmpty(video.LocalFilePath))
+            {
+                try
+                {
+                    var temp = await _storageService.DownloadToTempFileAsync(video.LocalFilePath);
+                    try
+                    {
+                        var duration = await GetVideoDurationSecondsAsync(temp);
+                        if (duration > 0) video.DurationSeconds = duration;
+                    }
+                    finally
+                    {
+                        try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                    }
+                }
+                catch { }
             }
 
             video.Status = "Ready";
@@ -340,6 +406,60 @@ namespace PostFlow.Services
                 videoId = video.Id,
                 postingJobs = postingJobs.Select(j => new { j.Id, j.Platform, j.Status, j.ScheduledAt })
             };
+        }
+
+        private static string GetFFprobePath()
+        {
+            var localPath = Path.Combine(Directory.GetCurrentDirectory(), "Tools", "ffmpeg", "ffprobe.exe");
+            if (File.Exists(localPath)) return localPath;
+
+            var lowerLocalPath = Path.Combine(Directory.GetCurrentDirectory(), "tools", "ffmpeg", "ffprobe.exe");
+            if (File.Exists(lowerLocalPath)) return lowerLocalPath;
+
+            var baseDir = Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg", "ffprobe.exe");
+            if (File.Exists(baseDir)) return baseDir;
+
+            var baseToolsDir = Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg", "ffprobe.exe");
+            if (File.Exists(baseToolsDir)) return baseToolsDir;
+
+            const string hardcodedDevPath = @"D:\Đồ án\PostFlow-API\Tools\ffmpeg\ffprobe.exe";
+            if (File.Exists(hardcodedDevPath)) return hardcodedDevPath;
+
+            return "ffprobe";
+        }
+
+        private static async Task<int> GetVideoDurationSecondsAsync(string filePath)
+        {
+            try
+            {
+                var ffprobe = GetFFprobePath();
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffprobe,
+                    Arguments = $"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var proc = Process.Start(psi);
+                if (proc == null) return 0;
+
+                var stdout = (await proc.StandardOutput.ReadToEndAsync()).Trim();
+                await proc.WaitForExitAsync();
+
+                if (double.TryParse(stdout, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var duration) && duration > 0)
+                {
+                    return Math.Max(1, (int)Math.Round(duration));
+                }
+            }
+            catch
+            {
+                // Bỏ qua lỗi nếu môi trường không có ffprobe, giữ giá trị mặc định
+            }
+
+            return 0;
         }
     }
 }

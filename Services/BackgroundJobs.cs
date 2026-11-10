@@ -29,6 +29,10 @@ namespace PostFlow.Services
             string jobId,
             string userId,
             string requestJson);
+        Task DubVideoJobAsync(
+            string jobId,
+            string userId,
+            string requestJson);
         Task GatherAnalyticsJobAsync();
     }
 
@@ -40,6 +44,7 @@ namespace PostFlow.Services
         private readonly IScriptGenerationService _scriptGenService;
         private readonly IScriptJobManager _scriptJobManager;
         private readonly IVoiceoverJobManager _voiceoverJobManager;
+        private readonly IDubVideoJobManager _dubVideoJobManager;
         private readonly INotificationService _notificationService;
         private readonly ILogger<BackgroundJobs> _logger;
 
@@ -50,6 +55,7 @@ namespace PostFlow.Services
             IScriptGenerationService scriptGenService,
             IScriptJobManager scriptJobManager,
             IVoiceoverJobManager voiceoverJobManager,
+            IDubVideoJobManager dubVideoJobManager,
             INotificationService notificationService,
             ILogger<BackgroundJobs> logger)
         {
@@ -59,6 +65,7 @@ namespace PostFlow.Services
             _scriptGenService = scriptGenService;
             _scriptJobManager = scriptJobManager;
             _voiceoverJobManager = voiceoverJobManager;
+            _dubVideoJobManager = dubVideoJobManager;
             _notificationService = notificationService;
             _logger = logger;
         }
@@ -341,6 +348,31 @@ namespace PostFlow.Services
                 {
                     _logger.LogWarning(notifEx, "Không thể gửi thông báo lỗi giọng đọc: {Msg}", notifEx.Message);
                 }
+            }
+        }
+
+        public async Task DubVideoJobAsync(string jobId, string userId, string requestJson)
+        {
+            try
+            {
+                _logger.LogInformation("Bắt đầu background job lồng tiếng. JobId: {JobId}, UserId: {UserId}", jobId, userId);
+                _dubVideoJobManager.SetProcessing(jobId);
+
+                var request = JsonSerializer.Deserialize<DubVideoRequest>(requestJson, (JsonSerializerOptions?)null);
+                if (request == null)
+                {
+                    _dubVideoJobManager.SetFailed(jobId, "Dữ liệu yêu cầu lồng tiếng không hợp lệ.");
+                    return;
+                }
+
+                var result = await _videoGenService.DubVideoAsync(userId, request);
+                _dubVideoJobManager.SetCompleted(jobId, result);
+                _logger.LogInformation("Background job lồng tiếng hoàn tất. JobId: {JobId}", jobId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi trong background job lồng tiếng. JobId: {JobId}", jobId);
+                _dubVideoJobManager.SetFailed(jobId, ex.Message);
             }
         }
 
