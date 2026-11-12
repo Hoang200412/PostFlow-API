@@ -12,7 +12,15 @@ public static class AuthenticationExtensions
         {
             options.AddPolicy("AllowAll", policy =>
             {
-                policy.WithOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:3000")
+                policy.SetIsOriginAllowed(origin =>
+                      {
+                          if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                              return false;
+
+                          return uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                              || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                              || uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase);
+                      })
                       .AllowAnyMethod()
                       .AllowAnyHeader()
                       .AllowCredentials();
