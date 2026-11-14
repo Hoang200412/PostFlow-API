@@ -60,10 +60,8 @@ namespace PostFlow.Services
         {
             using var sha256 = SHA256.Create();
             var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(codeVerifier));
-            return Convert.ToBase64String(hash)
-                .Replace("+", "-")
-                .Replace("/", "_")
-                .TrimEnd('=');
+            // TikTok yêu cầu code_challenge theo định dạng SHA-256 mã hóa HEX viết thường (khác với chuẩn RFC 7636 Base64URL)
+            return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
         public string GenerateState(PlatformType platform, string? returnUrl = null)
@@ -377,11 +375,12 @@ namespace PostFlow.Services
 
                 case PlatformType.TikTok:
                     {
+                        var rawCode = Uri.UnescapeDataString(code ?? string.Empty);
                         var tokenRequestParams = new Dictionary<string, string>
                         {
                             { "client_key", _settings.TikTok.ClientKey },
                             { "client_secret", _settings.TikTok.ClientSecret },
-                            { "code", code },
+                            { "code", rawCode },
                             { "grant_type", "authorization_code" },
                             { "redirect_uri", redirectUri }
                         };
@@ -394,19 +393,47 @@ namespace PostFlow.Services
                         var response = await client.PostAsync("https://open.tiktokapis.com/v2/oauth/token/", new FormUrlEncodedContent(tokenRequestParams));
                         var responseBody = await response.Content.ReadAsStringAsync();
 
+                        _logger.LogInformation("Phản hồi trao đổi token TikTok (Status {Status}): {Resp}", (int)response.StatusCode, responseBody);
+
                         if (!response.IsSuccessStatusCode)
                         {
-                            _logger.LogError("Lỗi trao đổi token TikTok: {Resp}", responseBody);
-                            throw new BadRequestException($"Không thể xác thực với TikTok: {responseBody}");
+                            _logger.LogError("Lỗi HTTP trao đổi token TikTok: {Resp}", responseBody);
+                            throw new BadRequestException($"Không thể xác thực với TikTok (HTTP {(int)response.StatusCode}): {responseBody}");
                         }
 
                         using var doc = JsonDocument.Parse(responseBody);
-                        if (!doc.RootElement.TryGetProperty("data", out var dataElem))
+                        var root = doc.RootElement;
+
+                        // Kiểm tra nếu TikTok trả về object error (TikTok v2 có thể trả về HTTP 200 kèm payload error)
+                        if (root.TryGetProperty("error", out var errorElem))
                         {
-                            throw new BadRequestException("TikTok không trả về thông tin tài khoản.");
+                            string errorMsg = "";
+                            if (errorElem.ValueKind == JsonValueKind.Object)
+                            {
+                                var errCode = errorElem.TryGetProperty("code", out var c) ? c.GetString() : "";
+                                var message = errorElem.TryGetProperty("message", out var m) ? m.GetString() : "";
+                                errorMsg = $"{errCode}: {message}".Trim();
+                            }
+                            else if (errorElem.ValueKind == JsonValueKind.String)
+                            {
+                                var desc = root.TryGetProperty("error_description", out var d) ? d.GetString() : "";
+                                errorMsg = $"{errorElem.GetString()} - {desc}".Trim();
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(errorMsg) && !errorMsg.Equals("ok", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _logger.LogError("TikTok từ chối cấp token: {Error} | Body: {Body}", errorMsg, responseBody);
+                                throw new BadRequestException($"TikTok từ chối cấp token: {errorMsg}");
+                            }
                         }
 
-                        accessToken = dataElem.GetProperty("access_token").GetString() ?? "";
+                        // Lấy data từ object "data" hoặc trực tiếp tại root
+                        var dataElem = root.TryGetProperty("data", out var dElem) ? dElem : root;
+
+                        if (dataElem.TryGetProperty("access_token", out var atElem))
+                        {
+                            accessToken = atElem.GetString() ?? "";
+                        }
                         if (dataElem.TryGetProperty("refresh_token", out var rtElem))
                         {
                             refreshToken = rtElem.GetString() ?? "";
@@ -422,7 +449,8 @@ namespace PostFlow.Services
 
                         if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(channelOrPageId))
                         {
-                            throw new BadRequestException("TikTok không trả về token hoặc định danh tài khoản hợp lệ.");
+                            _logger.LogError("Không tìm thấy access_token hoặc open_id hợp lệ từ TikTok. Body: {Body}", responseBody);
+                            throw new BadRequestException($"TikTok không trả về token hoặc định danh tài khoản hợp lệ. Phản hồi TikTok: {responseBody}");
                         }
 
                         accountName = !string.IsNullOrEmpty(channelOrPageId) ? $"TikTok User ({channelOrPageId.Substring(0, Math.Min(6, channelOrPageId.Length))})" : "TikTok Channel";
