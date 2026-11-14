@@ -104,7 +104,7 @@ namespace PostFlow.Services
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(60);
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
             var promptText = BuildScriptPrompt(topic, tone, targetDuration, customPrompt);
 
             var requestBody = new
@@ -126,8 +126,10 @@ namespace PostFlow.Services
                 }
             };
 
-            var jsonContent = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(url, jsonContent);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("x-goog-api-key", apiKey);
+            request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            using var response = await client.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -160,7 +162,7 @@ namespace PostFlow.Services
             if (script != null && script.Scenes.Count > 0)
             {
                 script.EstimatedDuration = script.Scenes.Sum(s => s.Duration);
-                script.ModelUsed = "google/gemini-1.5-flash";
+                script.ModelUsed = "google/gemini-3.5-flash";
                 script.ProviderUsed = "Google Gemini Direct";
             }
 

@@ -1,0 +1,23 @@
+{
+  "name": "postflow-remotion-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Code-drawn motion graphics explainer video renderer for PostFlow",
+  "scripts": {
+    "start": "remotion preview src/index.ts",
+    "build": "remotion render src/index.ts ExplainerLandscape out/video.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.543",
+    "@remotion/bundler": "^4.0.543",
+    "remotion": "^4.0.543",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.468.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.6.3"
+  }
+}

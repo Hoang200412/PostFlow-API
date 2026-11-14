@@ -354,7 +354,7 @@ namespace PostFlow.Services
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(60);
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
             var promptText = BuildTrendingFeedPrompt(platform, category);
 
             var requestBody = new
@@ -370,8 +370,10 @@ namespace PostFlow.Services
                 }
             };
 
-            var jsonContent = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(url, jsonContent);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("x-goog-api-key", apiKey);
+            request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            using var response = await client.SendAsync(request);
             if (!response.IsSuccessStatusCode) return null;
 
             var responseJson = await response.Content.ReadAsStringAsync();
@@ -543,7 +545,7 @@ namespace PostFlow.Services
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(60);
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
             var promptText = BuildTrendAnalysisPrompt(request);
 
             var requestBody = new
@@ -559,8 +561,10 @@ namespace PostFlow.Services
                 }
             };
 
-            var jsonContent = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            using var response = await client.PostAsync(url, jsonContent);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url);
+            httpRequest.Headers.Add("x-goog-api-key", apiKey);
+            httpRequest.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            using var response = await client.SendAsync(httpRequest);
             if (!response.IsSuccessStatusCode) return null;
 
             var responseJson = await response.Content.ReadAsStringAsync();
@@ -578,7 +582,7 @@ namespace PostFlow.Services
             {
                 parsed.Topic = request.Topic;
                 parsed.Platform = request.Platform;
-                parsed.ModelUsed = "gemini-1.5-flash";
+                parsed.ModelUsed = "gemini-3.5-flash";
                 parsed.ProviderUsed = "Google Gemini";
             }
 

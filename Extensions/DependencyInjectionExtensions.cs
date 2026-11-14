@@ -46,6 +46,9 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IMotionVideoService, MotionVideoService>();
         services.AddScoped<IMediaLibraryService, MediaLibraryService>();
         services.AddScoped<MotionVideoBackgroundJobs>();
+        services.AddSingleton<ExplainerVideoJobManager>();
+        services.AddScoped<IExplainerVideoService, ExplainerVideoService>();
+        services.AddScoped<ExplainerVideoBackgroundJobs>();
         services.AddHttpClient<PexelsStockVideoProvider>();
         services.AddScoped<IStockVideoProvider, PexelsStockVideoProvider>();
 
