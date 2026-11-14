@@ -22,6 +22,7 @@ namespace PostFlow.Configuration
         public string ClientSecret { get; set; } = string.Empty;
         public string AccessToken { get; set; } = string.Empty;
         public string OpenId { get; set; } = string.Empty;
+        public string Scopes { get; set; } = string.Empty;
     }
 
     public class FacebookReelsSettings

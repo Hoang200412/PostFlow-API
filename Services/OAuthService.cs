@@ -103,7 +103,10 @@ namespace PostFlow.Services
 
                 case PlatformType.TikTok:
                     var ttClientKey = _settings.TikTok.ClientKey;
-                    var ttScopes = Uri.EscapeDataString("user.info.basic,video.upload,video.publish");
+                    var configuredScopes = !string.IsNullOrWhiteSpace(_settings.TikTok.Scopes)
+                        ? _settings.TikTok.Scopes
+                        : "user.info.basic,video.publish";
+                    var ttScopes = Uri.EscapeDataString(configuredScopes);
 
                     string codeChallenge = "";
                     try
