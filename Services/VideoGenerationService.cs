@@ -476,8 +476,12 @@ public class VideoGenerationService : IVideoGenerationService
             // 1. Tải video gốc về máy chủ
             tempVideo = await _storageService.DownloadToTempFileAsync(sourceVideo.LocalFilePath);
 
-            // 2. Xác định file âm thanh giọng đọc (đã có sẵn từ preview hoặc sinh mới)
-            var audioPath = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
+            // 2. Xác định file âm thanh giọng đọc (nếu có yêu cầu lồng tiếng)
+            string? audioPath = null;
+            var hasVoiceover = !string.IsNullOrWhiteSpace(request.AudioObjectKey) ||
+                               !string.IsNullOrWhiteSpace(request.AudioUrl) ||
+                               !string.IsNullOrWhiteSpace(request.Text);
+
             if (!string.IsNullOrWhiteSpace(request.AudioObjectKey))
             {
                 tempAudio = await _storageService.DownloadToTempFileAsync(request.AudioObjectKey);
@@ -491,11 +495,8 @@ public class VideoGenerationService : IVideoGenerationService
             else if (!string.IsNullOrWhiteSpace(request.Text))
             {
                 var voice = string.IsNullOrWhiteSpace(request.Voice) ? "vi-VN-NamMinhNeural" : request.Voice;
+                audioPath = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
                 await GenerateTtsAudioWithParamsAsync(request.Text, voice, request.Rate, request.Pitch, audioPath, workDir);
-            }
-            else
-            {
-                throw new BadRequestException("Không tìm thấy dữ liệu âm thanh hoặc văn bản để lồng tiếng.");
             }
 
             // 3. Tải file nhạc nền (Track 3: BGM) nếu có (hỗ trợ cả BgmObjectKey và BackgroundMusicObjectKey)
@@ -523,21 +524,46 @@ public class VideoGenerationService : IVideoGenerationService
                 }
             }
 
+            var hasBgm = !string.IsNullOrWhiteSpace(bgmPath);
+
+            // Kiểm tra: Phải có ít nhất 1 nguồn âm thanh bổ sung (Lồng tiếng hoặc Nhạc nền)
+            if (!hasVoiceover && !hasBgm)
+            {
+                throw new BadRequestException("Vui lòng chọn giọng đọc hoặc nhạc nền để xử lý âm thanh cho video.");
+            }
+
             // 4. Kiểm tra xem video gốc có luồng audio không
             var hasAudio = await HasAudioStreamAsync(tempVideo);
             var ffmpeg = GetFFmpegPath();
             var outputMp4 = Path.Combine(workDir, $"{Guid.NewGuid():N}_dubbed.mp4");
 
-            // 5. Xây dựng bộ lọc hòa âm đa luồng (3-Track Filter Complex)
+            // 5. Xây dựng tham số đầu vào và bộ lọc hòa âm đa luồng động (Dynamic Multi-Track Filter)
             var isMix = string.Equals(request.AudioMode, "mix", StringComparison.OrdinalIgnoreCase);
             var origVol = isMix ? Math.Clamp(request.OriginalAudioVolume, 0.0, 2.0) : 0.0;
             var voiceVol = Math.Clamp(request.VoiceVolume > 0 ? request.VoiceVolume : 1.0, 0.0, 3.0);
             var voiceDelayMs = (int)Math.Max(0, Math.Round(request.StartTimeSeconds * 1000));
 
+            var inputArgs = new List<string> { $"-y -i \"{tempVideo}\"" }; // Input 0: Video
+            int nextInputIndex = 1;
+            int? voiceInputIndex = null;
+            int? bgmInputIndex = null;
+
+            if (hasVoiceover && !string.IsNullOrEmpty(audioPath))
+            {
+                inputArgs.Add($"-i \"{audioPath}\"");
+                voiceInputIndex = nextInputIndex++;
+            }
+
+            if (hasBgm && !string.IsNullOrEmpty(bgmPath))
+            {
+                inputArgs.Add($"-stream_loop -1 -i \"{bgmPath}\"");
+                bgmInputIndex = nextInputIndex++;
+            }
+
             var filterChains = new List<string>();
             var mixInputs = new List<string>();
 
-            // Luồng Track 1: Tiếng gốc video
+            // Luồng Track 1: Tiếng gốc video (nếu có và âm lượng > 0)
             if (hasAudio && origVol > 0.001)
             {
                 var origVolStr = origVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
@@ -545,36 +571,39 @@ public class VideoGenerationService : IVideoGenerationService
                 mixInputs.Add("[a_orig]");
             }
 
-            // Luồng Track 2: Giọng đọc thuyết minh (Voiceover) có hỗ trợ Offset (adelay)
-            var voiceVolStr = voiceVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-            if (voiceDelayMs > 0)
+            // Luồng Track 2: Giọng đọc thuyết minh (Voiceover) nếu được chọn
+            if (voiceInputIndex.HasValue)
             {
-                filterChains.Add($"[1:a]adelay={voiceDelayMs}|{voiceDelayMs},volume={voiceVolStr}[a_voice]");
+                var voiceVolStr = voiceVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+                var vIdx = voiceInputIndex.Value;
+                if (voiceDelayMs > 0)
+                {
+                    filterChains.Add($"[{vIdx}:a]adelay={voiceDelayMs}|{voiceDelayMs},volume={voiceVolStr}[a_voice]");
+                }
+                else
+                {
+                    filterChains.Add($"[{vIdx}:a]volume={voiceVolStr}[a_voice]");
+                }
+                mixInputs.Add("[a_voice]");
             }
-            else
-            {
-                filterChains.Add($"[1:a]volume={voiceVolStr}[a_voice]");
-            }
-            mixInputs.Add("[a_voice]");
 
-            // Luồng Track 3: Nhạc nền BGM (nếu có)
-            var bgmInputArg = "";
-            if (bgmPath != null)
+            // Luồng Track 3: Nhạc nền BGM nếu được chọn
+            if (bgmInputIndex.HasValue)
             {
                 var bgmVol = Math.Clamp(request.BgmVolume >= 0 ? request.BgmVolume : 0.2, 0.0, 2.0);
                 var bgmVolStr = bgmVol.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
                 var bgmDelayMs = (int)Math.Max(0, Math.Round(request.BgmStartTimeSeconds * 1000));
+                var bIdx = bgmInputIndex.Value;
 
                 if (bgmVol > 0.001)
                 {
-                    bgmInputArg = $"-stream_loop -1 -i \"{bgmPath}\" ";
                     if (bgmDelayMs > 0)
                     {
-                        filterChains.Add($"[2:a]adelay={bgmDelayMs}|{bgmDelayMs},volume={bgmVolStr}[a_bgm]");
+                        filterChains.Add($"[{bIdx}:a]adelay={bgmDelayMs}|{bgmDelayMs},volume={bgmVolStr}[a_bgm]");
                     }
                     else
                     {
-                        filterChains.Add($"[2:a]volume={bgmVolStr}[a_bgm]");
+                        filterChains.Add($"[{bIdx}:a]volume={bgmVolStr}[a_bgm]");
                     }
                     mixInputs.Add("[a_bgm]");
                 }
@@ -586,14 +615,19 @@ public class VideoGenerationService : IVideoGenerationService
                 filterChains.Add($"{string.Join("", mixInputs)}amix=inputs={mixInputs.Count}:duration=longest[amix]");
                 filterChains.Add("[amix]apad[aout]");
             }
-            else
+            else if (mixInputs.Count == 1)
             {
                 filterChains.Add($"{mixInputs[0]}apad[aout]");
             }
+            else
+            {
+                // Dự phòng nếu tất cả âm lượng = 0
+                filterChains.Add("aevalsrc=0:d=1[aout]");
+            }
 
             var filterComplex = string.Join(";", filterChains);
-            var args = $"-y -i \"{tempVideo}\" -i \"{audioPath}\" {bgmInputArg}" +
-                       $"-filter_complex \"{filterComplex}\" " +
+            var joinedInputs = string.Join(" ", inputArgs);
+            var args = $"{joinedInputs} -filter_complex \"{filterComplex}\" " +
                        $"-map 0:v:0 -map \"[aout]\" -c:v copy -c:a aac -b:a 192k -shortest \"{outputMp4}\"";
 
             var psi = new ProcessStartInfo
@@ -632,16 +666,25 @@ public class VideoGenerationService : IVideoGenerationService
             }
 
             // 7. Tạo VideoAsset mới trong DB
+            string defaultSuffix;
+            if (hasVoiceover && hasBgm)
+                defaultSuffix = "(Lồng tiếng & Nhạc nền)";
+            else if (hasVoiceover)
+                defaultSuffix = "(Lồng tiếng)";
+            else
+                defaultSuffix = "(Chèn nhạc nền)";
+
             var title = !string.IsNullOrWhiteSpace(request.Title) 
                 ? request.Title 
-                : $"{sourceVideo.Title} (Lồng tiếng)";
+                : $"{sourceVideo.Title} {defaultSuffix}";
 
             var description = !string.IsNullOrWhiteSpace(request.Text)
                 ? $"Lồng tiếng: {request.Text}"
-                : sourceVideo.Description;
+                : (hasBgm ? $"Video đã chèn nhạc nền từ {sourceVideo.Title}" : sourceVideo.Description);
 
             var tags = new List<string>(sourceVideo.Tags ?? new List<string>());
-            if (!tags.Contains("voiceover")) tags.Add("voiceover");
+            if (hasVoiceover && !tags.Contains("voiceover")) tags.Add("voiceover");
+            if (hasBgm && !tags.Contains("bgm")) tags.Add("bgm");
             if (!tags.Contains("dubbed")) tags.Add("dubbed");
 
             var dubbedAsset = new VideoAsset
