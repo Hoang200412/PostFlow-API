@@ -454,6 +454,41 @@ namespace PostFlow.Services
                         }
 
                         accountName = !string.IsNullOrEmpty(channelOrPageId) ? $"TikTok User ({channelOrPageId.Substring(0, Math.Min(6, channelOrPageId.Length))})" : "TikTok Channel";
+
+                        // Tự động gọi TikTok User Info API để lấy Tên hiển thị (display_name), Avatar và Username thực tế
+                        try
+                        {
+                            var userRequest = new HttpRequestMessage(HttpMethod.Get, "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url,username");
+                            userRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                            var userResp = await client.SendAsync(userRequest);
+                            if (userResp.IsSuccessStatusCode)
+                            {
+                                var userBody = await userResp.Content.ReadAsStringAsync();
+                                using var userDoc = JsonDocument.Parse(userBody);
+                                if (userDoc.RootElement.TryGetProperty("data", out var uData) &&
+                                    uData.TryGetProperty("user", out var uObj))
+                                {
+                                    var displayName = uObj.TryGetProperty("display_name", out var dn) ? dn.GetString() : null;
+                                    var username = uObj.TryGetProperty("username", out var un) ? un.GetString() : null;
+
+                                    if (!string.IsNullOrWhiteSpace(displayName))
+                                    {
+                                        accountName = displayName;
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(username))
+                                    {
+                                        accountName = username;
+                                    }
+
+                                    _logger.LogInformation("Đã lấy thông tin profile TikTok thành công: {Name} (@{Username})", accountName, username);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Không thể lấy thông tin profile chi tiết từ TikTok user/info, sử dụng tên mặc định.");
+                        }
+
                         break;
                     }
 
