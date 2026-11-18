@@ -5,12 +5,16 @@ interface TopHUDProps {
   topic: string;
   currentChapterTitle?: string;
   primaryColor?: string;
+  isPortrait?: boolean;
+  chapters?: import("../types").Chapter[];
 }
 
 export const TopHUD: React.FC<TopHUDProps> = ({
   topic,
   currentChapterTitle,
   primaryColor = "#3b82f6",
+  isPortrait = false,
+  chapters = [],
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -19,6 +23,12 @@ export const TopHUD: React.FC<TopHUDProps> = ({
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const timeString = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  const resolvedChapterTitle =
+    currentChapterTitle ??
+    chapters.find((chapter) => {
+      const end = chapter.startFrame + chapter.durationInFrames;
+      return frame >= chapter.startFrame && frame < end;
+    })?.title;
 
   return (
     <div
@@ -36,39 +46,40 @@ export const TopHUD: React.FC<TopHUDProps> = ({
     >
       {/* Left: Branding & Topic */}
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            border: "1px solid rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(12px)",
-            padding: "6px 14px",
-            borderRadius: 20,
-          }}
-        >
+        {!isPortrait && (
           <div
             style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              backgroundColor: primaryColor,
-              boxShadow: `0 0 8px ${primaryColor}`,
-            }}
-          />
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "#e2e8f0",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              backgroundColor: "rgba(255, 255, 255, 0.08)",
+              border: "1px solid rgba(255, 255, 255, 0.15)",
+              padding: "6px 14px",
+              borderRadius: 20,
             }}
           >
-            PostFlow Explainer
-          </span>
-        </div>
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                backgroundColor: primaryColor,
+                boxShadow: `0 0 8px ${primaryColor}`,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "#e2e8f0",
+              }}
+            >
+              PostFlow Explainer
+            </span>
+          </div>
+        )}
 
         <span
           style={{
@@ -87,7 +98,7 @@ export const TopHUD: React.FC<TopHUDProps> = ({
 
       {/* Right: Chapter Title & Frame Timer */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {currentChapterTitle && (
+        {resolvedChapterTitle && (
           <div
             style={{
               backgroundColor: "rgba(59, 130, 246, 0.12)",
@@ -99,25 +110,26 @@ export const TopHUD: React.FC<TopHUDProps> = ({
               color: "#93c5fd",
             }}
           >
-            {currentChapterTitle}
+            {resolvedChapterTitle}
           </div>
         )}
 
-        <div
-          style={{
-            backgroundColor: "rgba(0, 0, 0, 0.4)",
-            border: "1px solid rgba(255, 255, 255, 0.1)",
-            padding: "5px 10px",
-            borderRadius: 8,
-            fontSize: 13,
-            fontFamily: "monospace",
-            color: "#64748b",
-          }}
-        >
-          {timeString}
-        </div>
+        {!isPortrait && (
+          <div
+            style={{
+              backgroundColor: "rgba(0, 0, 0, 0.4)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              padding: "5px 10px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontFamily: "monospace",
+              color: "#64748b",
+            }}
+          >
+            {timeString}
+          </div>
+        )}
       </div>
     </div>
   );
 };
-

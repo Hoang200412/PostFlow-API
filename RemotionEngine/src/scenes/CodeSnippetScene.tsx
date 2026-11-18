@@ -2,6 +2,7 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
+import { useStyle } from "../themeContext";
 
 export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -9,6 +10,7 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const theme = useStyle();
 
   const codeData = scene.codeSnippet || {
     language: "bash",
@@ -22,6 +24,9 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
   });
 
   const lines = codeData.code.split("\n");
+  const typedCharacterCount = Math.max(0, Math.floor(frame * 1.15));
+  const typedCode = lines.join("\n").slice(0, typedCharacterCount);
+  const typedLines = typedCode.split("\n");
 
   // Cursor blink
   const showCursor = Math.floor(frame / 15) % 2 === 0;
@@ -35,7 +40,7 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
         justifyContent: "center",
         height: "100%",
         padding: isPortrait ? "0 24px" : "0 70px",
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: theme.fonts.body,
       }}
     >
       {/* Title */}
@@ -43,7 +48,8 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
         style={{
           fontSize: isPortrait ? 36 : 42,
           fontWeight: 800,
-          color: "#ffffff",
+          color: theme.palette.text,
+          fontFamily: theme.fonts.heading,
           marginBottom: 28,
           textAlign: "center",
           opacity: windowProgress,
@@ -118,6 +124,7 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
           }}
         >
           {lines.map((line, idx) => {
+            const visibleLine = typedLines[idx] ?? "";
             const lineProgress = spring({
               frame: frame - (idx * 5) - 8,
               fps,
@@ -126,6 +133,7 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
 
             const isComment = line.trim().startsWith("#") || line.trim().startsWith("//");
             const isCommand = line.trim().startsWith("docker") || line.trim().startsWith("npm") || line.trim().startsWith("git");
+            const isHighlightLine = codeData.highlightLine === idx + 1;
 
             return (
               <div
@@ -139,6 +147,9 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
                     [0, 1],
                     [-10, 0]
                   )}px)`,
+                  backgroundColor: isHighlightLine ? `${theme.palette.primary}22` : "transparent",
+                  margin: "0 -34px",
+                  padding: "0 34px",
                 }}
               >
                 <span style={{ color: "#484f58", userSelect: "none", width: 22, textAlign: "right" }}>
@@ -156,8 +167,8 @@ export const CodeSnippetScene: React.FC<{ scene: ExplainerScene; isPortrait?: bo
                     fontWeight: isCommand ? 600 : 400,
                   }}
                 >
-                  {line}
-                  {idx === lines.length - 1 && showCursor && (
+                  {idx >= typedLines.length ? "" : visibleLine}
+                  {idx === Math.max(0, typedLines.length - 1) && showCursor && (
                     <span style={{ color: "#38bdf8", marginLeft: 4 }}>▌</span>
                   )}
                 </span>

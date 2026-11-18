@@ -2,6 +2,7 @@ import React from "react";
 import { Composition } from "remotion";
 import { ExplainerVideo } from "./Video";
 import { ExplainerVideoProps } from "./types";
+import type { ComponentType } from "react";
 
 const defaultProps: ExplainerVideoProps = {
   topic: "Cách Hoạt Động Của Docker Container",
@@ -65,26 +66,27 @@ const defaultProps: ExplainerVideoProps = {
 };
 
 export const RemotionRoot: React.FC = () => {
+  const compositionComponent = ExplainerVideo as unknown as ComponentType<Record<string, unknown>>;
   const calculateTotalFrames = (props: ExplainerVideoProps) => {
-    const rawProps = props as any;
-    const explicitDuration = rawProps?.durationInFrames || rawProps?.DurationInFrames;
+    const explicitDuration = props.durationInFrames;
     if (typeof explicitDuration === "number" && explicitDuration > 0) {
       return explicitDuration;
     }
 
     if (!props.scenes || props.scenes.length === 0) return 300;
-    return props.scenes.reduce((acc, s) => {
-      const rawScene = s as any;
-      const dur = s.durationInFrames ?? rawScene?.DurationInFrames ?? 150;
+    const sceneFrames = props.scenes.reduce((acc, s) => {
+      const dur = s.durationInFrames ?? 150;
       return acc + dur;
     }, 0);
+    const transitionFrames = Math.max(0, props.scenes.length - 1) * 12;
+    return Math.max(1, sceneFrames - transitionFrames);
   };
 
   return (
     <>
       <Composition
         id="ExplainerLandscape"
-        component={ExplainerVideo as any}
+        component={compositionComponent}
         durationInFrames={calculateTotalFrames(defaultProps)}
         fps={30}
         width={1920}
@@ -99,7 +101,7 @@ export const RemotionRoot: React.FC = () => {
 
       <Composition
         id="ExplainerPortrait"
-        component={ExplainerVideo as any}
+        component={compositionComponent}
         durationInFrames={calculateTotalFrames(defaultProps)}
         fps={30}
         width={1080}
@@ -114,4 +116,3 @@ export const RemotionRoot: React.FC = () => {
     </>
   );
 };
-

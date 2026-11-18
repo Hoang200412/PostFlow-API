@@ -2,6 +2,7 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
+import { useStyle } from "../themeContext";
 
 export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -10,24 +11,36 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const isFinance = scene.category === "finance";
-  const defaultMetric = isFinance
-    ? {
-        value: "72",
-        prefix: "Quy tắc ",
-        suffix: "",
-        label: "Thời Gian Nhân Đôi Tài Sản",
-        description: "Lấy 72 chia cho tỷ suất sinh lời hàng năm để tính chính xác số năm số vốn của bạn tăng gấp 2 lần.",
-      }
-    : {
-        value: "10x",
-        prefix: "",
-        suffix: "",
-        label: "Tốc Độ Xử Lý Vượt Trội",
-        description: "Tối ưu hóa độ trễ, giảm 80% tài nguyên CPU và RAM trong môi trường tải cao.",
-      };
+  const theme = useStyle();
+  const defaultMetric = {
+    value: "10x",
+    prefix: "",
+    suffix: "",
+    label: "Tốc Độ Xử Lý Vượt Trội",
+    description: "Tối ưu hóa độ trễ, giảm tài nguyên và cải thiện hiệu suất.",
+  };
 
   const metric = scene.metric || defaultMetric;
+  const parsedMetric = metric.value.match(/^([+-]?[\d.,]+)(.*)$/);
+  const numericValue = parsedMetric ? Number(parsedMetric[1].replace(/\./g, "").replace(",", ".")) : 0;
+  const numericSuffix = parsedMetric?.[2] ?? "";
+  const countProgress = interpolate(frame, [8, 72], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const countedValue = Number.isFinite(numericValue)
+    ? Number((numericValue * countProgress).toFixed(numericValue % 1 === 0 ? 0 : 1))
+    : null;
+  const localizedCount = countedValue === null
+    ? metric.value
+    : String(countedValue).replace(".", ",");
+  const displayedMetric = numericSuffix
+    ? `${localizedCount}${numericSuffix}`
+    : metric.value.includes("x")
+      ? `${localizedCount}x`
+      : metric.value.includes("%")
+        ? `${localizedCount}%`
+        : localizedCount;
 
   const animProgress = spring({
     frame,
@@ -49,10 +62,10 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
     [circleCircumference, circleCircumference * 0.25]
   );
 
-  const iconName = scene.visualIcon || (isFinance ? "coins" : "zap");
-  const gaugeColor = isFinance ? "#fbbf24" : "#38bdf8";
-  const primaryCol = isFinance ? "#fbbf24" : "#38bdf8";
-  const accentCol = isFinance ? "#10b981" : "#10b981";
+  const iconName = scene.visualIcon || "zap";
+  const gaugeColor = theme.palette.primary;
+  const primaryCol = theme.palette.primary;
+  const accentCol = theme.palette.accent;
 
   return (
     <div
@@ -64,7 +77,7 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
         height: "100%",
         padding: isPortrait ? "0 30px" : "0 80px",
         textAlign: "center",
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: theme.fonts.body,
       }}
     >
       {/* Scene Title */}
@@ -72,7 +85,8 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
         style={{
           fontSize: isPortrait ? 36 : 42,
           fontWeight: 800,
-          color: "#ffffff",
+          color: theme.palette.text,
+          fontFamily: theme.fonts.heading,
           margin: "0 0 32px 0",
           opacity: animProgress,
           transform: `translateY(${interpolate(animProgress, [0, 1], [-20, 0])}px)`,
@@ -88,12 +102,11 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
           flexDirection: isPortrait ? "column" : "row",
           alignItems: "center",
           gap: isPortrait ? 24 : 48,
-          backgroundColor: isFinance ? "rgba(10, 24, 18, 0.85)" : "rgba(15, 23, 42, 0.8)",
+          backgroundColor: theme.palette.surface,
           border: `2px solid ${primaryCol}55`,
           borderRadius: 32,
           padding: isPortrait ? "36px 28px" : "48px 64px",
           boxShadow: `0 20px 60px rgba(0, 0, 0, 0.6), 0 0 50px ${primaryCol}33`,
-          backdropFilter: "blur(20px)",
           maxWidth: isPortrait ? 540 : 1000,
           opacity: Math.max(0, counterScale),
           transform: `scale(${Math.max(0, counterScale)})`,
@@ -172,7 +185,7 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
             }}
           >
             {metric.prefix || ""}
-            {metric.value}
+            {displayedMetric}
             {metric.suffix || ""}
           </div>
 

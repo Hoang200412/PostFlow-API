@@ -1,5 +1,5 @@
-import React from "react";
-import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
+import React, { useState } from "react";
+import { Img, staticFile, useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import {
   Server,
   Database,
@@ -54,6 +54,8 @@ interface TechVisualIconProps {
   accentColor?: string;
   delay?: number;
   showOrbitalRings?: boolean;
+  iconSvg?: string;
+  iconifyName?: string;
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -149,12 +151,22 @@ export const TechVisualIcon: React.FC<TechVisualIconProps> = ({
   accentColor = "#8b5cf6",
   delay = 0,
   showOrbitalRings = true,
+  iconSvg,
+  iconifyName,
 }) => {
+  const [iconifyFailed, setIconifyFailed] = useState(false);
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, "");
   const IconComponent = ICON_MAP[normalizedName] || Sparkles;
+  const customSvg = iconSvg?.trim();
+  const customSvgSrc = customSvg
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(customSvg)}`
+    : undefined;
+  const iconifySrc = iconifyName?.trim()
+    ? staticFile(`icons/${iconifyName.trim().replace(":", "-")}.svg`)
+    : undefined;
 
   // Spring entry animation
   const scaleSpring = spring({
@@ -201,7 +213,6 @@ export const TechVisualIcon: React.FC<TechVisualIconProps> = ({
           height: size * 1.5 * pulseGlow,
           borderRadius: "50%",
           background: `radial-gradient(circle, ${primaryColor}40 0%, ${accentColor}15 50%, transparent 70%)`,
-          filter: "blur(18px)",
           pointerEvents: "none",
         }}
       />
@@ -277,17 +288,29 @@ export const TechVisualIcon: React.FC<TechVisualIconProps> = ({
           background: "linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%)",
           border: `1.5px solid ${primaryColor}77`,
           boxShadow: `0 8px 30px rgba(0, 0, 0, 0.6), 0 0 25px ${primaryColor}44`,
-          backdropFilter: "blur(12px)",
         }}
       >
-        <IconComponent
-          size={size * 0.6}
-          color="#ffffff"
-          strokeWidth={2.2}
-          style={{
-            filter: `drop-shadow(0 0 12px ${primaryColor})`,
-          }}
-        />
+        {customSvg ? (
+          <Img
+            src={customSvgSrc as string}
+            alt=""
+            style={{ width: size * 0.6, height: size * 0.6, filter: `drop-shadow(0 0 12px ${primaryColor})` }}
+          />
+        ) : iconifySrc && !iconifyFailed ? (
+          <Img
+            src={iconifySrc}
+            alt=""
+            onError={() => setIconifyFailed(true)}
+            style={{ width: size * 0.6, height: size * 0.6, filter: `drop-shadow(0 0 12px ${primaryColor})` }}
+          />
+        ) : (
+          <IconComponent
+            size={size * 0.6}
+            color="#ffffff"
+            strokeWidth={2.2}
+            style={{ filter: `drop-shadow(0 0 12px ${primaryColor})` }}
+          />
+        )}
       </div>
     </div>
   );

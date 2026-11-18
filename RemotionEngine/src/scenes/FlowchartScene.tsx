@@ -2,21 +2,11 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene, FlowchartNode } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
+import { useStyle } from "../themeContext";
 
-function getFlowchartIcon(node: FlowchartNode, index: number, isFinance: boolean): string {
+function getFlowchartIcon(node: FlowchartNode, index: number): string {
   if (node.icon) return node.icon;
   const text = (node.label + " " + (node.sublabel || "")).toLowerCase();
-
-  if (isFinance) {
-    if (text.includes("thu nhập") || text.includes("income") || text.includes("lương") || text.includes("tiền vào")) return "wallet";
-    if (text.includes("chi phí") || text.includes("tiêu dùng") || text.includes("cố định") || text.includes("chi tiêu")) return "creditcard";
-    if (text.includes("đầu tư") || text.includes("tăng trưởng") || text.includes("lợi nhuận") || text.includes("lãi")) return "trendingup";
-    if (text.includes("tự do") || text.includes("tài sản") || text.includes("vốn") || text.includes("tiền tệ")) return "coins";
-    if (text.includes("tiết kiệm") || text.includes("dự phòng") || text.includes("quỹ")) return "piggybank";
-    if (text.includes("ngân hàng") || text.includes("thể chế")) return "landmark";
-    const financeDefaults = ["wallet", "creditcard", "trendingup", "coins"];
-    return financeDefaults[index % financeDefaults.length];
-  }
 
   // Tech defaults
   if (text.includes("client") || text.includes("user") || text.includes("browser") || text.includes("người dùng") || text.includes("app")) return "laptop";
@@ -35,15 +25,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-
-  const isFinance = scene.category === "finance";
-
-  const defaultFinanceNodes: FlowchartNode[] = [
-    { id: "1", label: "Thu Nhập", sublabel: "Dòng tiền vào hàng tháng", icon: "wallet", status: "normal" as const },
-    { id: "2", label: "Chi Phí Thiết Yếu", sublabel: "Nguyên tắc quản lý 50%", icon: "creditcard", status: "normal" as const },
-    { id: "3", label: "Quỹ Đầu Tư Kỷ Luật", sublabel: "Tích lũy & Tận dụng lãi kép", icon: "trendingup", status: "highlight" as const },
-    { id: "4", label: "Tự Do Tài Chính", sublabel: "Thu nhập thụ động bền vững", icon: "coins", status: "active" as const },
-  ];
+  const theme = useStyle();
 
   const defaultTechNodes: FlowchartNode[] = [
     { id: "1", label: "Client Request", sublabel: "Gửi HTTP Request", icon: "laptop", status: "normal" as const },
@@ -54,8 +36,6 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
 
   const nodes = scene.flowchartNodes && scene.flowchartNodes.length > 0
     ? scene.flowchartNodes
-    : isFinance
-    ? defaultFinanceNodes
     : defaultTechNodes;
 
   const headerProgress = spring({
@@ -64,7 +44,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
     config: { damping: 14, stiffness: 90 },
   });
 
-  const packetColor = isFinance ? "#fbbf24" : "#38bdf8";
+  const packetColor = theme.palette.primary;
 
   return (
     <div
@@ -75,7 +55,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
         justifyContent: "center",
         height: "100%",
         padding: isPortrait ? "0 30px" : "0 60px",
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: theme.fonts.body,
       }}
     >
       {/* Title & Subtitle */}
@@ -91,7 +71,8 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
           style={{
             fontSize: isPortrait ? 38 : 46,
             fontWeight: 800,
-            color: "#ffffff",
+            color: theme.palette.text,
+            fontFamily: theme.fonts.heading,
             margin: "0 0 10px 0",
             letterSpacing: "-0.02em",
           }}
@@ -99,7 +80,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
           {scene.title}
         </h2>
         {scene.subtitle && (
-          <p style={{ fontSize: isPortrait ? 20 : 20, color: "#94a3b8", margin: 0, fontWeight: 500 }}>
+          <p style={{ fontSize: isPortrait ? 20 : 20, color: theme.palette.muted, margin: 0, fontWeight: 500 }}>
             {scene.subtitle}
           </p>
         )}
@@ -129,19 +110,19 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
           const isHighlight = node.status === "highlight";
 
           const borderCol = isHighlight
-            ? (isFinance ? "#10b981" : "#10b981")
+            ? theme.palette.accent
             : isActive
-            ? (isFinance ? "#eab308" : "#3b82f6")
+            ? theme.palette.primary
             : "rgba(255, 255, 255, 0.15)";
 
           const glowCol = isHighlight
-            ? (isFinance ? "rgba(16, 185, 129, 0.4)" : "rgba(16, 185, 129, 0.35)")
+            ? `${theme.palette.accent}66`
             : isActive
-            ? (isFinance ? "rgba(234, 179, 8, 0.4)" : "rgba(59, 130, 246, 0.35)")
+            ? `${theme.palette.primary}55`
             : "rgba(0, 0, 0, 0.4)";
 
-          const iconName = getFlowchartIcon(node, index, isFinance);
-          const iconColor = isHighlight ? "#10b981" : isActive ? (isFinance ? "#eab308" : "#3b82f6") : (isFinance ? "#fbbf24" : "#a855f7");
+          const iconName = getFlowchartIcon(node, index);
+          const iconColor = isHighlight ? theme.palette.accent : isActive ? theme.palette.primary : theme.palette.muted;
 
           // Animated pulse for highlight/active
           const pulse = (isActive || isHighlight)
@@ -160,13 +141,12 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                   width: isPortrait ? "100%" : "auto",
                   opacity: Math.max(0, nodeProgress),
                   transform: `scale(${Math.max(0, nodeProgress) * pulse})`,
-                  backgroundColor: isFinance ? "rgba(10, 24, 18, 0.85)" : "rgba(13, 19, 35, 0.85)",
+                  backgroundColor: theme.palette.surface,
                   border: `2px solid ${borderCol}`,
                   borderRadius: 20,
                   padding: isPortrait ? "16px 20px" : "24px 20px",
                   textAlign: "center",
                   boxShadow: `0 14px 34px ${glowCol}`,
-                  backdropFilter: "blur(16px)",
                   position: "relative",
                   display: "flex",
                   flexDirection: isPortrait ? "row" : "column",
@@ -180,7 +160,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                     position: "absolute",
                     top: -12,
                     left: 20,
-                    backgroundColor: isHighlight ? "#10b981" : isActive ? (isFinance ? "#eab308" : "#3b82f6") : "#475569",
+                    backgroundColor: isHighlight ? theme.palette.accent : isActive ? theme.palette.primary : theme.palette.muted,
                     color: "#ffffff",
                     fontSize: 11,
                     fontWeight: 800,
@@ -261,7 +241,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                       style={{
                         width: 3,
                         height: 24,
-                        backgroundColor: isFinance ? "rgba(234, 179, 8, 0.3)" : "rgba(59, 130, 246, 0.3)",
+                        backgroundColor: `${theme.palette.primary}55`,
                         borderRadius: 2,
                         position: "relative",
                         overflow: "hidden",
@@ -297,7 +277,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                       style={{
                         width: "100%",
                         height: 3,
-                        backgroundColor: isFinance ? "rgba(234, 179, 8, 0.3)" : "rgba(59, 130, 246, 0.3)",
+                        backgroundColor: `${theme.palette.primary}55`,
                         borderRadius: 2,
                         position: "relative",
                       }}

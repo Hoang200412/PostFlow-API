@@ -2,6 +2,7 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
+import { useStyle } from "../themeContext";
 
 export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -10,26 +11,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  const isFinance = scene.category === "finance";
-
-  const defaultFinanceCards = [
-    {
-      name: "Giữ Tiền Mặt",
-      badge: "Truyền Thống",
-      icon: "wallet",
-      pros: ["An toàn ngắn hạn", "Dễ thanh khoản tức thì"],
-      cons: ["Bị lạm phát bào mòn", "Mất giá trị sức mua theo thời gian"],
-      isWinner: false,
-    },
-    {
-      name: "Đầu Tư Tăng Trưởng",
-      badge: "Đột Phá",
-      icon: "trendingup",
-      pros: ["Hưởng trọn sức mạnh lãi kép", "Bảo vệ tài sản trước lạm phát", "Tự do tài chính bền vững"],
-      cons: [],
-      isWinner: true,
-    },
-  ];
+  const theme = useStyle();
 
   const defaultTechCards = [
     {
@@ -52,8 +34,6 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
 
   const cards = scene.comparisonCards && scene.comparisonCards.length > 0
     ? scene.comparisonCards
-    : isFinance
-    ? defaultFinanceCards
     : defaultTechCards;
 
   const headerProgress = spring({
@@ -71,7 +51,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
         justifyContent: "center",
         height: "100%",
         padding: isPortrait ? "0 30px" : "0 80px",
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: theme.fonts.body,
       }}
     >
       {/* Header */}
@@ -87,7 +67,8 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
           style={{
             fontSize: isPortrait ? 38 : 46,
             fontWeight: 800,
-            color: "#ffffff",
+            color: theme.palette.text,
+            fontFamily: theme.fonts.heading,
             margin: "0 0 10px 0",
             letterSpacing: "-0.02em",
           }}
@@ -95,7 +76,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
           {scene.title}
         </h2>
         {scene.subtitle && (
-          <p style={{ fontSize: isPortrait ? 20 : 20, color: "#94a3b8", margin: 0, fontWeight: 500 }}>
+          <p style={{ fontSize: isPortrait ? 20 : 20, color: theme.palette.muted, margin: 0, fontWeight: 500 }}>
             {scene.subtitle}
           </p>
         )}
@@ -124,7 +105,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
           const isWin = card.isWinner ?? idx === 1;
           const borderColor = isWin ? "#10b981" : "rgba(255, 255, 255, 0.15)";
           const glowColor = isWin ? "rgba(16, 185, 129, 0.3)" : "rgba(0, 0, 0, 0.4)";
-          const cardIcon = card.icon || (isFinance ? (isWin ? "trendingup" : "wallet") : (isWin ? "zap" : "harddrive"));
+          const cardIcon = card.icon || (isWin ? "zap" : "harddrive");
 
           const winnerPulse = isWin
             ? interpolate(Math.sin(frame / 12), [-1, 1], [0.99, 1.02])
@@ -137,14 +118,11 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
                 flex: 1,
                 opacity: Math.max(0, cardProgress),
                 transform: `scale(${Math.max(0, cardProgress) * winnerPulse})`,
-                backgroundColor: isFinance
-                  ? (isWin ? "rgba(12, 32, 22, 0.9)" : "rgba(16, 22, 18, 0.75)")
-                  : (isWin ? "rgba(16, 28, 48, 0.9)" : "rgba(15, 20, 32, 0.75)"),
+                backgroundColor: isWin ? `${theme.palette.primary}18` : theme.palette.surface,
                 border: `2px solid ${borderColor}`,
                 borderRadius: 24,
                 padding: isPortrait ? "22px 24px" : "32px 36px",
                 boxShadow: `0 18px 45px ${glowColor}`,
-                backdropFilter: "blur(16px)",
                 display: "flex",
                 flexDirection: "column",
                 position: "relative",

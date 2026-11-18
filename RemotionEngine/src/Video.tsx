@@ -1,6 +1,12 @@
 import React from "react";
-import { Sequence, Audio, staticFile } from "remotion";
-import { ExplainerVideoProps, SceneType } from "./types";
+import { AbsoluteFill, Audio, staticFile } from "remotion";
+import { TransitionSeries, linearTiming } from "@remotion/transitions";
+import { fade } from "@remotion/transitions/fade";
+import { slide } from "@remotion/transitions/slide";
+import { wipe } from "@remotion/transitions/wipe";
+import { ExplainerScene, ExplainerVideoProps, SceneType } from "./types";
+import { StyleProvider } from "./themeContext";
+import { DEFAULT_STYLE_PACK, STYLE_PACKS } from "./themes";
 import { BackgroundCanvas } from "./components/BackgroundCanvas";
 import { TopHUD } from "./components/TopHUD";
 import { ChapterProgressBar } from "./components/ChapterProgressBar";
@@ -10,6 +16,8 @@ import { FlowchartScene } from "./scenes/FlowchartScene";
 import { CardComparisonScene } from "./scenes/CardComparisonScene";
 import { MetricHighlightScene } from "./scenes/MetricHighlightScene";
 import { CodeSnippetScene } from "./scenes/CodeSnippetScene";
+import { SceneMedia } from "./components/SceneMedia";
+import { getSafeScene } from "./sceneRegistry";
 
 function normalizeSceneType(rawType?: string): SceneType {
   const t = (rawType || "").toLowerCase().trim().replace(/[-_]/g, "");
@@ -28,6 +36,9 @@ function normalizeSceneType(rawType?: string): SceneType {
   if (t.includes("takeaway") || t.includes("summary") || t.includes("conclusion")) {
     return "key-takeaway";
   }
+  if (t.includes("timeline") || t.includes("chronology") || t.includes("milestone")) return "timeline";
+  if (t.includes("barchart") || t.includes("bargraph") || t.includes("columnchart")) return "bar-chart";
+  if (t.includes("quote") || t.includes("testimonial")) return "quote";
   // Default fallback - never leave the screen blank!
   return "hero";
 }
@@ -40,12 +51,80 @@ export const ExplainerVideo: React.FC<ExplainerVideoProps> = ({
   chapters = [],
   scenes = [],
   theme,
+  backgroundStyle,
+  stylePack,
+  stylePackId,
 }) => {
   const isPortrait = aspectRatio === "9:16";
+  const resolvedStyle = stylePack ?? (stylePackId ? STYLE_PACKS[stylePackId] : undefined) ?? DEFAULT_STYLE_PACK;
+  const sceneTimeline = scenes.reduce<{ offset: number; items: Array<{ scene: ExplainerScene; from: number; duration: number }> }>(
+    (timeline, scene) => {
+      const duration = scene.durationInFrames ?? 150;
+      timeline.items.push({ scene, from: timeline.offset, duration });
+      timeline.offset += duration;
+      return timeline;
+    },
+    { offset: 0, items: [] }
+  ).items;
+  const timelineChildren = sceneTimeline.reduce<React.ReactNode[]>(
+    (children, { scene, duration }, index) => {
+      if (index > 0) {
+        if (resolvedStyle.transition === "fade") {
+          children.push(
+            <TransitionSeries.Transition
+              key={`fade-${scene.id}`}
+              timing={linearTiming({ durationInFrames: 12 })}
+              presentation={fade()}
+            />
+          );
+        } else if (resolvedStyle.transition === "slide") {
+          children.push(
+            <TransitionSeries.Transition
+              key={`slide-${scene.id}`}
+              timing={linearTiming({ durationInFrames: 12 })}
+              presentation={slide({ direction: "from-right" })}
+            />
+          );
+        } else {
+          children.push(
+            <TransitionSeries.Transition
+              key={`wipe-${scene.id}`}
+              timing={linearTiming({ durationInFrames: 12 })}
+              presentation={wipe({ direction: "from-left" })}
+            />
+          );
+        }
+      }
 
-  let currentFrameOffset = 0;
+      const normalizedScene = normalizeSceneType(scene.type);
+      const safeResult = getSafeScene({ ...scene, type: normalizedScene });
+      const SceneComponent = safeResult.entry.component;
+      const safeScene = safeResult.scene;
+      const splitMedia = safeScene.layout === "split-image";
+
+      children.push(
+        <TransitionSeries.Sequence key={safeScene.id} durationInFrames={duration}>
+          <AbsoluteFill>
+            <SceneMedia scene={safeScene} isPortrait={isPortrait} durationInFrames={duration} />
+            <div
+              style={{
+                position: "absolute",
+                inset: splitMedia ? "0 0 0 45%" : 0,
+                zIndex: 2,
+              }}
+            >
+              <SceneComponent scene={safeScene} isPortrait={isPortrait} />
+            </div>
+          </AbsoluteFill>
+        </TransitionSeries.Sequence>
+      );
+      return children;
+    },
+    []
+  );
 
   return (
+    <StyleProvider pack={resolvedStyle}>
     <div
       style={{
         position: "relative",
@@ -57,52 +136,24 @@ export const ExplainerVideo: React.FC<ExplainerVideoProps> = ({
     >
       {/* 1. Global Ambient Background */}
       <BackgroundCanvas
-        primaryColor={theme?.primaryColor || "#3b82f6"}
-        accentColor={theme?.accentColor || "#8b5cf6"}
+        primaryColor={theme?.primaryColor || resolvedStyle.palette.primary}
+        accentColor={theme?.accentColor || resolvedStyle.palette.accent}
+        style={backgroundStyle ?? resolvedStyle.background}
       />
 
       {/* 2. Top HUD Header */}
-      <TopHUD topic={topic} primaryColor={theme?.primaryColor || "#3b82f6"} />
+      <TopHUD
+        topic={topic}
+        chapters={chapters}
+        isPortrait={isPortrait}
+        primaryColor={theme?.primaryColor || resolvedStyle.palette.primary}
+      />
 
       {/* 3. Audio Narration Track */}
       {audioPath && <Audio src={staticFile(audioPath)} />}
 
       {/* 4. Sequenced Scene Timeline */}
-      {scenes.map((scene) => {
-        const from = currentFrameOffset;
-        const rawScene = scene as any;
-        const duration = scene.durationInFrames ?? rawScene?.DurationInFrames ?? 150;
-        currentFrameOffset += duration;
-
-        const rawType = scene.type ?? rawScene?.Type;
-        const category = scene.category ?? rawScene?.Category;
-        const normalizedType = normalizeSceneType(rawType);
-        const effectiveType = (category === "finance" && normalizedType === "code-snippet")
-          ? "card-comparison"
-          : normalizedType;
-
-        return (
-          <Sequence key={scene.id} from={from} durationInFrames={duration}>
-            <div style={{ position: "relative", width: "100%", height: "100%" }}>
-              {effectiveType === "flowchart" && (
-                <FlowchartScene scene={scene} isPortrait={isPortrait} />
-              )}
-              {effectiveType === "card-comparison" && (
-                <CardComparisonScene scene={scene} isPortrait={isPortrait} />
-              )}
-              {effectiveType === "metric-highlight" && (
-                <MetricHighlightScene scene={scene} isPortrait={isPortrait} />
-              )}
-              {effectiveType === "code-snippet" && (
-                <CodeSnippetScene scene={scene} isPortrait={isPortrait} />
-              )}
-              {(effectiveType === "hero" || effectiveType === "key-takeaway") && (
-                <HeroScene scene={scene} isPortrait={isPortrait} />
-              )}
-            </div>
-          </Sequence>
-        );
-      })}
+      <TransitionSeries>{timelineChildren}</TransitionSeries>
 
       {/* 5. Dynamic Synchronized Subtitles */}
       <DynamicSubtitles subtitles={subtitles} isPortrait={isPortrait} />
@@ -110,8 +161,9 @@ export const ExplainerVideo: React.FC<ExplainerVideoProps> = ({
       {/* 6. Bottom Chapter Progress Bar */}
       <ChapterProgressBar
         chapters={chapters}
-        primaryColor={theme?.primaryColor || "#3b82f6"}
+        primaryColor={theme?.primaryColor || resolvedStyle.palette.primary}
       />
     </div>
+    </StyleProvider>
   );
 };

@@ -18,7 +18,35 @@ export type SceneType =
   | "card-comparison"
   | "metric-highlight"
   | "code-snippet"
-  | "key-takeaway";
+  | "key-takeaway"
+  | "timeline"
+  | "bar-chart"
+  | "quote";
+
+export interface WordTiming {
+  word: string;
+  start_ms: number;
+  end_ms: number;
+  itemIndex?: number;
+}
+
+export interface TimelineItem {
+  label: string;
+  description?: string;
+  date?: string;
+}
+
+export interface BarChartItem {
+  label: string;
+  value: number;
+  suffix?: string;
+}
+
+export interface QuoteItem {
+  quote: string;
+  author?: string;
+  role?: string;
+}
 
 export interface FlowchartNode {
   id: string;
@@ -58,7 +86,11 @@ export interface ExplainerScene {
   visualIcon?: string;
   visualTheme?: string;
   imageUrl?: string;
+  videoUrl?: string;
   icon?: string;
+  iconSvg?: string;
+  iconifyName?: string;
+  layout?: "fullbleed-image" | "split-image";
   tags?: string[];
 
   // Custom props per scene type
@@ -71,6 +103,10 @@ export interface ExplainerScene {
     highlightLine?: number;
   };
   takeaways?: string[];
+  wordTimings?: WordTiming[];
+  timelineItems?: TimelineItem[];
+  barItems?: BarChartItem[];
+  quote?: QuoteItem;
 }
 
 export interface ExplainerVideoProps {
@@ -79,6 +115,9 @@ export interface ExplainerVideoProps {
   aspectRatio: "16:9" | "9:16";
   durationInFrames?: number;
   audioPath?: string;
+  backgroundStyle?: "aurora" | "dotgrid" | "paper" | "mesh" | "none";
+  stylePack?: import("./themes").StylePack;
+  stylePackId?: string;
   subtitles: SubtitleWord[];
   chapters: Chapter[];
   scenes: ExplainerScene[];
@@ -88,4 +127,3 @@ export interface ExplainerVideoProps {
     backgroundColor: string;
   };
 }
-

@@ -2,6 +2,7 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig, spring, interpolate, Img } from "remotion";
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
+import { useStyle } from "../themeContext";
 
 export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -9,6 +10,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const theme = useStyle();
 
   const iconProgress = spring({
     frame,
@@ -37,21 +39,17 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
   const leftTagFloat = interpolate(Math.sin(frame / 20), [-1, 1], [-6, 6]);
   const rightTagFloat = interpolate(Math.cos(frame / 22), [-1, 1], [-6, 6]);
 
-  const isFinance = scene.category === "finance";
-  const iconName = scene.visualIcon || scene.icon || (isFinance ? "dollar" : "boxes");
-
-  const primaryCol = isFinance ? "#eab308" : "#3b82f6";
-  const accentCol = isFinance ? "#10b981" : "#8b5cf6";
-
-  const defaultTags = isFinance
-    ? ["📈 TĂNG TRƯỞNG DÀI HẠN", "🛡️ QUẢN TRỊ RỦI RO"]
-    : ["⚡ CÔNG NGHỆ ĐỘT PHÁ", "🛡️ TỐI ƯU HIỆU NĂNG"];
+  const categoryIcon = scene.category === "finance" ? "dollar" : "boxes";
+  const iconName = scene.visualIcon || scene.icon || categoryIcon;
+  const primaryCol = theme.palette.primary;
+  const accentCol = theme.palette.accent;
+  const defaultTags = ["⚡ NỘI DUNG CỐT LÕI", "🛡️ DỄ HIỂU, DỄ NHỚ"];
 
   const tags = scene.tags && scene.tags.length >= 2 ? scene.tags : defaultTags;
   const leftTag = tags[0];
   const rightTag = tags[1];
 
-  const badgeText = isFinance ? "Chiến Lược Cốt Lõi" : "Khái Niệm Cốt Lõi";
+  const badgeText = "Khái Niệm Cốt Lõi";
 
   return (
     <div
@@ -63,7 +61,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
         height: "100%",
         textAlign: "center",
         padding: isPortrait ? "0 40px" : "0 80px",
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: theme.fonts.body,
         position: "relative",
       }}
     >
@@ -121,6 +119,8 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
         >
           <TechVisualIcon
             name={iconName}
+            iconSvg={scene.iconSvg}
+            iconifyName={scene.iconifyName}
             size={isPortrait ? 88 : 100}
             primaryColor={primaryCol}
             accentColor={accentCol}
@@ -141,7 +141,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
               border: `1px solid ${primaryCol}55`,
               padding: "8px 18px",
               borderRadius: 14,
-              color: isFinance ? "#fde047" : "#93c5fd",
+              color: theme.palette.primary,
               fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.05em",
@@ -161,7 +161,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
               border: `1px solid ${accentCol}55`,
               padding: "8px 18px",
               borderRadius: 14,
-              color: isFinance ? "#6ee7b7" : "#c4b5fd",
+              color: theme.palette.accent,
               fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.05em",
