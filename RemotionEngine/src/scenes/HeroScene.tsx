@@ -3,6 +3,7 @@ import { useCurrentFrame, useVideoConfig, spring, interpolate, Img } from "remot
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
 import { useStyle } from "../themeContext";
+import { paletteTone } from "../themes";
 
 export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -11,6 +12,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const theme = useStyle();
+  const tone = paletteTone(theme);
 
   const iconProgress = spring({
     frame,
@@ -49,7 +51,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
   const leftTag = tags[0];
   const rightTag = tags[1];
 
-  const badgeText = "Khái Niệm Cốt Lõi";
+  const badgeText = scene.tags && scene.tags.length > 0 ? scene.tags[0] : "";
 
   return (
     <div
@@ -66,7 +68,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
       }}
     >
       {/* Category Badge */}
-      <div
+      {badgeText && <div
         style={{
           transform: `scale(${Math.max(0, badgeScale)})`,
           opacity: Math.max(0, badgeScale),
@@ -84,7 +86,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
         }}
       >
         {badgeText}
-      </div>
+      </div>}
 
       {/* Visual Centerpiece: Animated 3D Glowing Tech Icon or Image */}
       {scene.imageUrl ? (
@@ -95,8 +97,8 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
             height: isPortrait ? 160 : 190,
             borderRadius: 20,
             overflow: "hidden",
-            border: "2px solid rgba(59, 130, 246, 0.5)",
-            boxShadow: "0 0 35px rgba(59, 130, 246, 0.4)",
+            border: `2px solid ${primaryCol}88`,
+            boxShadow: `0 0 35px ${primaryCol}55`,
             transform: `scale(${Math.max(0, iconProgress)})`,
           }}
         >
@@ -137,7 +139,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
               left: "10%",
               top: "42%",
               transform: `translateY(${leftTagFloat}px)`,
-              backgroundColor: "rgba(15, 23, 42, 0.75)",
+              backgroundColor: tone.chipBg,
               border: `1px solid ${primaryCol}55`,
               padding: "8px 18px",
               borderRadius: 14,
@@ -145,7 +147,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
               fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.05em",
-              boxShadow: `0 8px 24px rgba(0, 0, 0, 0.5), 0 0 15px ${primaryCol}22`,
+              boxShadow: `0 8px 24px ${tone.shadow}, 0 0 15px ${primaryCol}22`,
             }}
           >
             {leftTag}
@@ -157,7 +159,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
               right: "10%",
               top: "42%",
               transform: `translateY(${rightTagFloat}px)`,
-              backgroundColor: "rgba(15, 23, 42, 0.75)",
+              backgroundColor: tone.chipBg,
               border: `1px solid ${accentCol}55`,
               padding: "8px 18px",
               borderRadius: 14,
@@ -165,7 +167,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
               fontSize: 13,
               fontWeight: 700,
               letterSpacing: "0.05em",
-              boxShadow: `0 8px 24px rgba(0, 0, 0, 0.5), 0 0 15px ${accentCol}22`,
+              boxShadow: `0 8px 24px ${tone.shadow}, 0 0 15px ${accentCol}22`,
             }}
           >
             {rightTag}
@@ -179,16 +181,13 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
           fontSize: isPortrait ? 52 : 62,
           fontWeight: 900,
           lineHeight: 1.18,
-          color: "#ffffff",
+          color: theme.palette.text,
+          fontFamily: theme.fonts.heading,
           maxWidth: isPortrait ? 820 : 1200,
           margin: 0,
           opacity: Math.max(0, titleProgress),
           transform: `translateY(${interpolate(Math.max(0, titleProgress), [0, 1], [30, 0])}px)`,
-          textShadow: "0 10px 30px rgba(0, 0, 0, 0.7)",
-          background: "linear-gradient(135deg, #ffffff 65%, #e2e8f0 100%)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          filter: "drop-shadow(0 4px 20px rgba(0, 0, 0, 0.8))",
+          textShadow: `0 8px 28px ${tone.shadow}`,
         }}
       >
         {scene.title}
@@ -201,7 +200,7 @@ export const HeroScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }
             fontSize: isPortrait ? 24 : 22,
             fontWeight: 400,
             lineHeight: 1.5,
-            color: "#94a3b8",
+            color: theme.palette.muted,
             maxWidth: isPortrait ? 740 : 920,
             marginTop: 18,
             opacity: Math.max(0, subtitleProgress),

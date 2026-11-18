@@ -1,6 +1,8 @@
 import React from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import { Chapter } from "../types";
+import { useStyle } from "../themeContext";
+import { paletteTone } from "../themes";
 
 interface ChapterProgressBarProps {
   chapters: Chapter[];
@@ -12,6 +14,7 @@ export const ChapterProgressBar: React.FC<ChapterProgressBarProps> = ({
   primaryColor = "#3b82f6",
 }) => {
   const frame = useCurrentFrame();
+  const tone = paletteTone(useStyle());
   const { durationInFrames } = useVideoConfig();
 
   if (!chapters || chapters.length === 0) {
@@ -24,7 +27,7 @@ export const ChapterProgressBar: React.FC<ChapterProgressBarProps> = ({
           left: 0,
           right: 0,
           height: 4,
-          backgroundColor: "rgba(255, 255, 255, 0.1)",
+          backgroundColor: tone.wash,
           zIndex: 50,
         }}
       >
@@ -69,7 +72,7 @@ export const ChapterProgressBar: React.FC<ChapterProgressBarProps> = ({
             style={{
               flex: 1,
               height: 4,
-              backgroundColor: "rgba(255, 255, 255, 0.12)",
+              backgroundColor: tone.wash,
               borderRadius: 2,
               overflow: "hidden",
               position: "relative",

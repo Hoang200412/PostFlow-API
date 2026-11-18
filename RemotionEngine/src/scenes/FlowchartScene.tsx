@@ -3,6 +3,7 @@ import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene, FlowchartNode } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
 import { useStyle } from "../themeContext";
+import { paletteTone } from "../themes";
 
 function getFlowchartIcon(node: FlowchartNode, index: number): string {
   if (node.icon) return node.icon;
@@ -26,6 +27,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const theme = useStyle();
+  const tone = paletteTone(theme);
 
   const defaultTechNodes: FlowchartNode[] = [
     { id: "1", label: "Client Request", sublabel: "Gửi HTTP Request", icon: "laptop", status: "normal" as const },
@@ -95,7 +97,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
           justifyContent: "center",
           gap: isPortrait ? 12 : 20,
           width: "100%",
-          maxWidth: isPortrait ? 520 : 1380,
+          maxWidth: isPortrait ? 900 : 1380,
         }}
       >
         {nodes.map((node, index) => {
@@ -113,13 +115,13 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
             ? theme.palette.accent
             : isActive
             ? theme.palette.primary
-            : "rgba(255, 255, 255, 0.15)";
+            : tone.line;
 
           const glowCol = isHighlight
             ? `${theme.palette.accent}66`
             : isActive
             ? `${theme.palette.primary}55`
-            : "rgba(0, 0, 0, 0.4)";
+            : tone.shadow;
 
           const iconName = getFlowchartIcon(node, index);
           const iconColor = isHighlight ? theme.palette.accent : isActive ? theme.palette.primary : theme.palette.muted;
@@ -167,7 +169,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                     padding: "3px 10px",
                     borderRadius: 12,
                     letterSpacing: "0.06em",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                    boxShadow: `0 4px 12px ${tone.shadow}`,
                   }}
                 >
                   BƯỚC {index + 1}
@@ -182,7 +184,7 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                     width: isPortrait ? 52 : 68,
                     height: isPortrait ? 52 : 68,
                     borderRadius: 16,
-                    backgroundColor: "rgba(255, 255, 255, 0.05)",
+                    backgroundColor: tone.wash,
                     border: `1px solid ${borderCol}`,
                     flexShrink: 0,
                   }}
@@ -200,9 +202,9 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                 <div style={{ textAlign: isPortrait ? "left" : "center", flex: 1 }}>
                   <div
                     style={{
-                      fontSize: isPortrait ? 20 : 21,
+                      fontSize: isPortrait ? 22 : 24,
                       fontWeight: 700,
-                      color: "#ffffff",
+                      color: theme.palette.text,
                       marginBottom: 4,
                     }}
                   >
@@ -212,8 +214,8 @@ export const FlowchartScene: React.FC<{ scene: ExplainerScene; isPortrait?: bool
                   {node.sublabel && (
                     <div
                       style={{
-                        fontSize: isPortrait ? 14 : 14,
-                        color: "#94a3b8",
+                        fontSize: isPortrait ? 17 : 18,
+                        color: theme.palette.muted,
                         lineHeight: 1.4,
                       }}
                     >

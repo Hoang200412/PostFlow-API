@@ -78,8 +78,8 @@ export const RemotionRoot: React.FC = () => {
       const dur = s.durationInFrames ?? 150;
       return acc + dur;
     }, 0);
-    const transitionFrames = Math.max(0, props.scenes.length - 1) * 12;
-    return Math.max(1, sceneFrames - transitionFrames);
+    // Video.tsx extends each scene by the transition overlap, so the total equals the sum.
+    return Math.max(1, sceneFrames);
   };
 
   return (

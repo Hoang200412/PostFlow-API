@@ -3,6 +3,7 @@ import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
 import { useStyle } from "../themeContext";
+import { paletteTone } from "../themes";
 
 export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -12,6 +13,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
   const { fps } = useVideoConfig();
 
   const theme = useStyle();
+  const tone = paletteTone(theme);
 
   const defaultTechCards = [
     {
@@ -103,8 +105,8 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
           });
 
           const isWin = card.isWinner ?? idx === 1;
-          const borderColor = isWin ? "#10b981" : "rgba(255, 255, 255, 0.15)";
-          const glowColor = isWin ? "rgba(16, 185, 129, 0.3)" : "rgba(0, 0, 0, 0.4)";
+          const borderColor = isWin ? "#10b981" : tone.line;
+          const glowColor = isWin ? "rgba(16, 185, 129, 0.3)" : tone.shadow;
           const cardIcon = card.icon || (isWin ? "zap" : "harddrive");
 
           const winnerPulse = isWin
@@ -139,7 +141,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
               >
                 <div
                   style={{
-                    backgroundColor: isWin ? "#10b981" : "#475569",
+                    backgroundColor: isWin ? "#10b981" : theme.palette.muted,
                     color: "#ffffff",
                     fontSize: 12,
                     fontWeight: 800,
@@ -159,7 +161,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
                     width: 44,
                     height: 44,
                     borderRadius: 12,
-                    backgroundColor: "rgba(255, 255, 255, 0.05)",
+                    backgroundColor: tone.wash,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -169,7 +171,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
                   <TechVisualIcon
                     name={cardIcon}
                     size={26}
-                    primaryColor={isWin ? "#10b981" : "#94a3b8"}
+                    primaryColor={isWin ? "#10b981" : theme.palette.muted}
                     delay={delay}
                     showOrbitalRings={false}
                   />
@@ -179,9 +181,9 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
               {/* Card Title */}
               <h3
                 style={{
-                  fontSize: isPortrait ? 24 : 28,
+                  fontSize: isPortrait ? 28 : 32,
                   fontWeight: 800,
-                  color: isWin ? "#ffffff" : "#cbd5e1",
+                  color: isWin ? theme.palette.text : tone.soft,
                   margin: "0 0 20px 0",
                   letterSpacing: "-0.01em",
                 }}
@@ -221,8 +223,8 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
                           width: 22,
                           height: 22,
                           borderRadius: "50%",
-                          backgroundColor: isWin ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.1)",
-                          color: isWin ? "#10b981" : "#94a3b8",
+                          backgroundColor: isWin ? "rgba(16, 185, 129, 0.2)" : tone.wash,
+                          color: isWin ? "#10b981" : theme.palette.muted,
                           fontSize: 14,
                           fontWeight: 900,
                           flexShrink: 0,
@@ -232,8 +234,8 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
                       </span>
                       <span
                         style={{
-                          fontSize: isPortrait ? 16 : 17,
-                          color: "#e2e8f0",
+                          fontSize: isPortrait ? 20 : 22,
+                          color: tone.soft,
                           lineHeight: 1.4,
                           fontWeight: 500,
                         }}
@@ -247,7 +249,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
 
               {/* Cons List (if present) */}
               {card.cons && card.cons.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 14 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, borderTop: `1px solid ${tone.line}`, paddingTop: 14 }}>
                   {card.cons.map((cItem, cIdx) => (
                     <div key={cIdx} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <span
@@ -267,7 +269,7 @@ export const CardComparisonScene: React.FC<{ scene: ExplainerScene; isPortrait?:
                       >
                         ✕
                       </span>
-                      <span style={{ fontSize: isPortrait ? 15 : 16, color: "#94a3b8", lineHeight: 1.4 }}>
+                      <span style={{ fontSize: isPortrait ? 18 : 20, color: theme.palette.muted, lineHeight: 1.4 }}>
                         {cItem}
                       </span>
                     </div>

@@ -1,5 +1,7 @@
 import React from "react";
-import { useCurrentFrame, useVideoConfig } from "remotion";
+import { useCurrentFrame } from "remotion";
+import { useStyle } from "../themeContext";
+import { paletteTone } from "../themes";
 
 interface TopHUDProps {
   topic: string;
@@ -17,12 +19,8 @@ export const TopHUD: React.FC<TopHUDProps> = ({
   chapters = [],
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-
-  const totalSeconds = Math.floor(frame / fps);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const timeString = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  const theme = useStyle();
+  const tone = paletteTone(theme);
   const resolvedChapterTitle =
     currentChapterTitle ??
     chapters.find((chapter) => {
@@ -41,7 +39,7 @@ export const TopHUD: React.FC<TopHUDProps> = ({
         justifyContent: "space-between",
         alignItems: "center",
         zIndex: 50,
-        fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+        fontFamily: theme.fonts.body,
       }}
     >
       {/* Left: Branding & Topic */}
@@ -52,8 +50,8 @@ export const TopHUD: React.FC<TopHUDProps> = ({
               display: "flex",
               alignItems: "center",
               gap: 6,
-              backgroundColor: "rgba(255, 255, 255, 0.08)",
-              border: "1px solid rgba(255, 255, 255, 0.15)",
+              backgroundColor: tone.wash,
+              border: `1px solid ${tone.line}`,
               padding: "6px 14px",
               borderRadius: 20,
             }}
@@ -69,11 +67,11 @@ export const TopHUD: React.FC<TopHUDProps> = ({
             />
             <span
               style={{
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: 700,
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
-                color: "#e2e8f0",
+                color: theme.palette.text,
               }}
             >
               PostFlow Explainer
@@ -83,10 +81,10 @@ export const TopHUD: React.FC<TopHUDProps> = ({
 
         <span
           style={{
-            fontSize: 14,
+            fontSize: 18,
             fontWeight: 500,
-            color: "#94a3b8",
-            maxWidth: 400,
+            color: theme.palette.muted,
+            maxWidth: isPortrait ? 520 : 700,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -101,34 +99,19 @@ export const TopHUD: React.FC<TopHUDProps> = ({
         {resolvedChapterTitle && (
           <div
             style={{
-              backgroundColor: "rgba(59, 130, 246, 0.12)",
-              border: "1px solid rgba(59, 130, 246, 0.3)",
-              padding: "5px 12px",
+              backgroundColor: `${primaryColor}1f`,
+              border: `1px solid ${primaryColor}55`,
+              padding: "6px 14px",
               borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 600,
-              color: "#93c5fd",
+              fontSize: 16,
+              fontWeight: 700,
+              color: theme.palette.text,
             }}
           >
             {resolvedChapterTitle}
           </div>
         )}
 
-        {!isPortrait && (
-          <div
-            style={{
-              backgroundColor: "rgba(0, 0, 0, 0.4)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              padding: "5px 10px",
-              borderRadius: 8,
-              fontSize: 13,
-              fontFamily: "monospace",
-              color: "#64748b",
-            }}
-          >
-            {timeString}
-          </div>
-        )}
       </div>
     </div>
   );

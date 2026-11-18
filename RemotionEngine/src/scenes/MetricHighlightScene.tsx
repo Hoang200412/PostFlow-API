@@ -3,6 +3,7 @@ import { useCurrentFrame, useVideoConfig, spring, interpolate } from "remotion";
 import { ExplainerScene } from "../types";
 import { TechVisualIcon } from "../components/TechVisualIcon";
 import { useStyle } from "../themeContext";
+import { paletteTone } from "../themes";
 
 export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?: boolean }> = ({
   scene,
@@ -12,6 +13,7 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
   const { fps } = useVideoConfig();
 
   const theme = useStyle();
+  const tone = paletteTone(theme);
   const defaultMetric = {
     value: "10x",
     prefix: "",
@@ -106,7 +108,7 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
           border: `2px solid ${primaryCol}55`,
           borderRadius: 32,
           padding: isPortrait ? "36px 28px" : "48px 64px",
-          boxShadow: `0 20px 60px rgba(0, 0, 0, 0.6), 0 0 50px ${primaryCol}33`,
+          boxShadow: `0 20px 60px ${tone.shadow}, 0 0 50px ${primaryCol}33`,
           maxWidth: isPortrait ? 540 : 1000,
           opacity: Math.max(0, counterScale),
           transform: `scale(${Math.max(0, counterScale)})`,
@@ -138,7 +140,7 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
               cy="100"
               r="90"
               fill="transparent"
-              stroke="rgba(255, 255, 255, 0.08)"
+              stroke={tone.wash}
               strokeWidth="10"
             />
             {/* Animated Gradient Gauge Progress */}
@@ -192,9 +194,9 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
           {/* Metric Label */}
           <div
             style={{
-              fontSize: isPortrait ? 26 : 28,
+              fontSize: isPortrait ? 28 : 32,
               fontWeight: 800,
-              color: "#ffffff",
+              color: theme.palette.text,
               marginBottom: 12,
               letterSpacing: "-0.01em",
             }}
@@ -206,8 +208,8 @@ export const MetricHighlightScene: React.FC<{ scene: ExplainerScene; isPortrait?
           {metric.description && (
             <p
               style={{
-                fontSize: isPortrait ? 17 : 18,
-                color: "#94a3b8",
+                fontSize: isPortrait ? 20 : 22,
+                color: theme.palette.muted,
                 lineHeight: 1.5,
                 margin: 0,
                 fontWeight: 400,

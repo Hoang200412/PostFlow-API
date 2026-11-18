@@ -82,3 +82,40 @@ export const STYLE_PACKS: Record<string, StylePack> = {
 };
 
 export const DEFAULT_STYLE_PACK = STYLE_PACKS.neon;
+
+function hexLuminance(hex: string): number {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export function isLightPack(pack: StylePack): boolean {
+  return hexLuminance(pack.palette.bg) > 0.55;
+}
+
+/** Theme-aware neutral colors so scenes stay readable on both dark and light packs. */
+export function paletteTone(pack: StylePack) {
+  const light = isLightPack(pack);
+  return {
+    light,
+    /** Hairline borders / dividers */
+    line: light ? "rgba(15, 23, 42, 0.14)" : "rgba(255, 255, 255, 0.15)",
+    /** Faint filled chips / icon wells */
+    wash: light ? "rgba(15, 23, 42, 0.06)" : "rgba(255, 255, 255, 0.06)",
+    /** Strong text on surface */
+    strong: pack.palette.text,
+    /** Body text on surface */
+    soft: light ? "#334155" : "#e2e8f0",
+    /** Secondary text */
+    muted: pack.palette.muted,
+    /** Text shadow / drop shadow base */
+    shadow: light ? "rgba(15, 23, 42, 0.18)" : "rgba(0, 0, 0, 0.55)",
+    /** Text on top of a filled primary/accent chip */
+    onChip: "#ffffff",
+    /** Floating chip background */
+    chipBg: light ? "rgba(255, 255, 255, 0.85)" : "rgba(15, 23, 42, 0.75)",
+  };
+}

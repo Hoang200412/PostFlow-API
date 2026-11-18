@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using PostFlow.Configuration;
 using PostFlow.Models;
 using PostFlow.Services;
+using PostFlow.Services.Explainer;
 using PostFlow.Services.Interfaces;
 using PostFlow.Services.Publishers;
 using PostFlow.Services.StockVideo;
@@ -24,6 +25,7 @@ public static class DependencyInjectionExtensions
         services.Configure<CloudflareR2Settings>(configuration.GetSection("CloudflareR2"));
         services.Configure<AISettings>(configuration.GetSection("AI"));
         services.Configure<StockVideoSettings>(configuration.GetSection("StockVideo"));
+        services.Configure<ExplainerVideoSettings>(configuration.GetSection(ExplainerVideoSettings.SectionName));
 
         // Register Platform-specific publishers
         services.AddTransient<ISocialPublisher, YouTubePublisher>();
@@ -47,6 +49,10 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IMediaLibraryService, MediaLibraryService>();
         services.AddScoped<MotionVideoBackgroundJobs>();
         services.AddSingleton<ExplainerVideoJobManager>();
+        services.AddSingleton<ExplainerToolLocator>();
+        services.AddScoped<IGeminiClient, GeminiClient>();
+        services.AddScoped<IEdgeTtsAligner, EdgeTtsAligner>();
+        services.AddScoped<IRemotionRenderer, RemotionRenderer>();
         services.AddScoped<IExplainerVideoService, ExplainerVideoService>();
         services.AddScoped<ExplainerVideoBackgroundJobs>();
         services.AddHttpClient<PexelsStockVideoProvider>();
