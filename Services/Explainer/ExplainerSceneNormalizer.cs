@@ -99,6 +99,31 @@ namespace PostFlow.Services.Explainer
             };
         }
 
+        /// <summary>
+        /// Cảnh thiếu dữ liệu bắt buộc của loại cảnh (sơ đồ không đủ node, so sánh không đủ 2 thẻ, số liệu rỗng, code rỗng)
+        /// sẽ render thành khung trống. Hạ những cảnh đó về "hero" (chỉ cần title/subtitle) và trả về số cảnh đã hạ.
+        /// </summary>
+        public static int DowngradeIncompleteScenes(IEnumerable<ExplainerSceneDto> scenes)
+        {
+            var downgraded = 0;
+            foreach (var scene in scenes)
+            {
+                if (!IsMissingRequiredData(scene)) continue;
+                scene.Type = ExplainerSceneTypes.Hero;
+                downgraded++;
+            }
+            return downgraded;
+        }
+
+        private static bool IsMissingRequiredData(ExplainerSceneDto scene) => scene.Type switch
+        {
+            ExplainerSceneTypes.Flowchart => (scene.FlowchartNodes?.Count ?? 0) < 2,
+            ExplainerSceneTypes.CardComparison => (scene.ComparisonCards?.Count ?? 0) < 2,
+            ExplainerSceneTypes.MetricHighlight => string.IsNullOrWhiteSpace(scene.Metric?.Value),
+            ExplainerSceneTypes.CodeSnippet => string.IsNullOrWhiteSpace(scene.CodeSnippet?.Code),
+            _ => false
+        };
+
         /// <summary>Icon mặc định khi scene chưa có icon.</summary>
         public static string DefaultIcon(string? category) =>
             ExplainerCategories.IsFinance(category) ? "dollar" : "sparkles";

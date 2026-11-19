@@ -1,51 +1,48 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using PostFlow.Configuration;
 using PostFlow.Data;
 using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
+using PostFlow.Services.Explainer;
 using PostFlow.Services.Interfaces;
 
 namespace PostFlow.Services
 {
     public class ScriptGenerationService : IScriptGenerationService
     {
-        private readonly AppDbContext _context;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly AISettings _aiSettings;
-        private readonly ILogger<ScriptGenerationService> _logger;
+        private const decimal CostPerCall = 0.005m;
+        private const double RetryTemperature = 0.4;
+        private const string ProviderName = "Google Gemini Direct";
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true
         };
 
+        private readonly AppDbContext _context;
+        private readonly IGeminiClient _gemini;
+        private readonly ILogger<ScriptGenerationService> _logger;
+
         public ScriptGenerationService(
             AppDbContext context,
-            IHttpClientFactory httpClientFactory,
-            IOptions<AISettings> aiSettings,
+            IGeminiClient gemini,
             ILogger<ScriptGenerationService> logger)
         {
             _context = context;
-            _httpClientFactory = httpClientFactory;
-            _aiSettings = aiSettings.Value;
+            _gemini = gemini;
             _logger = logger;
         }
 
         /// <summary>
-        /// Sinh kịch bản video ngắn tự động bằng Google Gemini AI
+        /// Sinh kịch bản video ngắn bằng Gemini. Prompt tách vai trò (system) khỏi dữ liệu, kèm schema đầu ra;
+        /// kết quả được kiểm tra chất lượng và sinh lại một lần nếu chưa đạt.
         /// </summary>
         public async Task<ScriptDto> GenerateScriptAsync(string userId, GenerateScriptRequest request)
         {
@@ -56,33 +53,22 @@ namespace PostFlow.Services
                     .FirstOrDefaultAsync(d => d.Id == request.ContentDnaId && d.UserId == userId);
             }
 
-            var tone = !string.IsNullOrWhiteSpace(request.Tone)
-                ? request.Tone
-                : (!string.IsNullOrWhiteSpace(dna?.VoiceProfile) ? dna.VoiceProfile : "Năng động, cuốn hút, giàu thông tin thực tế");
+            var tone = FirstNonEmpty(request.Tone, dna?.VoiceProfile) ?? ScriptPromptBuilder.DefaultTone;
+            var targetDuration = FirstNonEmpty(request.TargetDuration) ?? ScriptPromptBuilder.DefaultDuration;
 
-            var targetDuration = !string.IsNullOrWhiteSpace(request.TargetDuration)
-                ? request.TargetDuration
-                : "30-45 giây";
-
-            // Sinh kịch bản trực tiếp qua Google Gemini API
-            var geminiKey = !string.IsNullOrWhiteSpace(_aiSettings?.GeminiApiKey)
-                ? _aiSettings.GeminiApiKey
-                : Environment.GetEnvironmentVariable("GEMINI_API_KEY");
-
-            if (string.IsNullOrWhiteSpace(geminiKey))
-            {
-                _logger.LogError("Thiếu cấu hình GeminiApiKey trong AISettings hoặc biến môi trường GEMINI_API_KEY.");
-                throw new BadRequestException("Hệ thống chưa được cấu hình Gemini API Key. Vui lòng kiểm tra lại cài đặt.");
-            }
-
+            var calls = 0;
             try
             {
-                var geminiScript = await CallGeminiForScriptAsync(geminiKey, request.Topic, tone, targetDuration, request.CustomPrompt);
-                if (geminiScript != null && geminiScript.Scenes.Count > 0)
+                var script = await GenerateValidatedAsync(request, dna, tone, targetDuration, () => calls++);
+                if (script != null)
                 {
-                    await LogApiUsageAsync(userId, "Gemini", 1, 0.005m);
-                    return geminiScript;
+                    await LogApiUsageAsync(userId, "Gemini", calls, CostPerCall * calls);
+                    return script;
                 }
+            }
+            catch (BadRequestException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -94,147 +80,100 @@ namespace PostFlow.Services
             throw new BadRequestException("Dịch vụ Gemini AI không phản hồi kịch bản hợp lệ. Vui lòng thử lại với chủ đề khác.");
         }
 
-        private async Task<ScriptDto?> CallGeminiForScriptAsync(
-            string apiKey, 
-            string topic, 
-            string tone, 
-            string targetDuration,
-            string? customPrompt)
+        private async Task<ScriptDto?> GenerateValidatedAsync(
+            GenerateScriptRequest request, ContentDNA? dna, string tone, string targetDuration, Action onCall)
         {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(60);
+            var first = await RequestOnceAsync(ScriptPromptBuilder.Build(request, dna, tone, targetDuration), null, targetDuration, onCall);
+            if (first.Script != null && first.Issues.Count == 0) return Finalize(first.Script, request, first.Model);
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
-            var promptText = BuildScriptPrompt(topic, tone, targetDuration, customPrompt);
+            var retryIssues = first.Issues.Count > 0
+                ? first.Issues
+                : new[] { "Đầu ra không phải JSON hợp lệ theo schema." };
+            _logger.LogWarning("Kịch bản chưa đạt ({Count} lỗi), sinh lại: {Issues}", retryIssues.Count, string.Join(" | ", retryIssues));
 
-            var requestBody = new
+            Attempt second;
+            try
             {
-                contents = new[]
-                {
-                    new
-                    {
-                        parts = new[]
-                        {
-                            new { text = promptText }
-                        }
-                    }
-                },
-                generationConfig = new
-                {
-                    response_mime_type = "application/json",
-                    temperature = 0.7
-                }
-            };
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("x-goog-api-key", apiKey);
-            request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            using var response = await client.SendAsync(request);
-
-            if (!response.IsSuccessStatusCode)
+                second = await RequestOnceAsync(
+                    ScriptPromptBuilder.Build(request, dna, tone, targetDuration, retryIssues), RetryTemperature, targetDuration, onCall);
+            }
+            catch (Exception ex) when (first.Script != null)
             {
-                var errContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Gemini API error {StatusCode}: {Error}", response.StatusCode, errContent);
-                return null;
+                _logger.LogWarning(ex, "Lần sinh lại kịch bản thất bại, dùng bản đầu tiên.");
+                return Finalize(first.Script, request, first.Model);
             }
 
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseJson);
+            var best = PickBest(first, second);
+            if (best == null) return null;
 
-            if (!doc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+            if (best.Issues.Count > 0)
             {
-                return null;
+                _logger.LogWarning("Dùng kịch bản còn {Count} cảnh báo: {Issues}", best.Issues.Count, string.Join(" | ", best.Issues));
+            }
+            return Finalize(best.Script!, request, best.Model);
+        }
+
+        private async Task<Attempt> RequestOnceAsync(
+            ExplainerPrompt prompt, double? temperature, string targetDuration, Action onCall)
+        {
+            onCall();
+            var result = await _gemini.GenerateAsync(
+                prompt.User,
+                new GeminiRequestOptions(prompt.System, GeminiSchemas.Script(), temperature));
+
+            ScriptDto? script;
+            try
+            {
+                script = JsonSerializer.Deserialize<ScriptDto>(AiJsonExtractor.Extract(result.Text), JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Không đọc được JSON kịch bản từ AI.");
+                return new Attempt(null, Array.Empty<string>(), result.Model);
             }
 
-            var candidateText = candidates[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString();
+            if (script == null) return new Attempt(null, Array.Empty<string>(), result.Model);
 
-            if (string.IsNullOrWhiteSpace(candidateText)) return null;
+            Normalize(script);
+            return new Attempt(script, ExplainerOutputValidator.ValidateScript(script, targetDuration), result.Model);
+        }
 
-            var cleanJson = ExtractJsonContent(candidateText);
-            if (string.IsNullOrWhiteSpace(cleanJson)) return null;
+        private static Attempt? PickBest(Attempt first, Attempt second)
+        {
+            if (second.Script == null) return first.Script == null ? null : first;
+            if (first.Script == null) return second;
+            return second.Issues.Count <= first.Issues.Count ? second : first;
+        }
 
-            var script = JsonSerializer.Deserialize<ScriptDto>(cleanJson, JsonOptions);
+        private static ScriptDto? Finalize(ScriptDto script, GenerateScriptRequest request, string model)
+        {
+            if (script.Scenes.Count == 0) return null;
 
-            if (script != null && script.Scenes.Count > 0)
-            {
-                script.EstimatedDuration = script.Scenes.Sum(s => s.Duration);
-                script.ModelUsed = "google/gemini-3.5-flash";
-                script.ProviderUsed = "Google Gemini Direct";
-            }
-
+            if (string.IsNullOrWhiteSpace(script.Topic)) script.Topic = request.Topic;
+            script.EstimatedDuration = script.Scenes.Sum(scene => scene.Duration);
+            script.ModelUsed = $"google/{model}";
+            script.ProviderUsed = ProviderName;
             return script;
         }
 
-        private static string BuildScriptPrompt(string topic, string tone, string targetDuration, string? customPrompt)
+        /// <summary>Loại bỏ cảnh trống, đánh số lại liên tục, đảm bảo duration dương.</summary>
+        internal static void Normalize(ScriptDto script)
         {
-            return $@"Bạn là chuyên gia sáng tạo kịch bản video ngắn (TikTok, YouTube Shorts, Reels) hàng đầu.
-Chủ đề: {topic}
-Tone giọng: {tone}
-Thời lượng dự kiến: {targetDuration}
-{(!string.IsNullOrWhiteSpace(customPrompt) ? $"Yêu cầu bổ sung: {customPrompt}" : "")}
+            script.Scenes = (script.Scenes ?? new List<SceneDto>())
+                .Where(scene => !string.IsNullOrWhiteSpace(scene.Narration))
+                .ToList();
 
-Hãy tạo kịch bản video ngắn chuẩn cấu trúc:
-1. Hook (3s đầu): Đánh vào tâm lý, gây tò mò cực độ.
-2. Các phân cảnh (Scenes): Mỗi phân cảnh 1 ý rõ ràng, có lời thoại thuyết minh bằng tiếng Việt (narration) và từ khóa tiếng Anh ngắn gọn trực quan (visualKeyword) để tìm video stock footage.
-3. CTA (Call to action): Lời kêu gọi hành động kết video (follow/lưu video/bình luận).
-
-BẮT BUỘC trả về đúng định dạng JSON thuần túy (không kèm markdown code block, không thêm text ngoài JSON):
-{{
-  ""title"": ""Tiêu đề video hấp dẫn"",
-  ""topic"": ""{topic}"",
-  ""hook"": ""Câu hook mở đầu 3s"",
-  ""scenes"": [
-    {{
-      ""sceneNo"": 1,
-      ""narration"": ""Nội dung thuyết minh phân cảnh 1 bằng tiếng Việt"",
-      ""visualDescription"": ""Mô tả hình ảnh trực quan"",
-      ""visualKeyword"": ""english stock footage keyword"",
-      ""duration"": 6
-    }}
-  ],
-  ""cta"": ""Lời kêu gọi hành động kết video""
-}}";
+            for (var i = 0; i < script.Scenes.Count; i++)
+            {
+                script.Scenes[i].SceneNo = i + 1;
+                if (script.Scenes[i].Duration <= 0) script.Scenes[i].Duration = 1;
+            }
         }
 
-        /// <summary>
-        /// Trích xuất nội dung JSON hợp lệ từ phản hồi của AI (loại bỏ markdown block hoặc text thừa)
-        /// </summary>
-        private static string ExtractJsonContent(string rawText)
-        {
-            if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
+        private static string? FirstNonEmpty(params string?[] values) =>
+            values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
-            var text = rawText.Trim();
-
-            // Tìm vị trí mở ngoặc { đầu tiên và đóng ngoặc } cuối cùng
-            var firstBrace = text.IndexOf('{');
-            var lastBrace = text.LastIndexOf('}');
-
-            if (firstBrace >= 0 && lastBrace > firstBrace)
-            {
-                return text.Substring(firstBrace, lastBrace - firstBrace + 1).Trim();
-            }
-
-            // Fallback nếu có markdown code block
-            if (text.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
-            {
-                text = text.Substring(7);
-            }
-            else if (text.StartsWith("```", StringComparison.Ordinal))
-            {
-                text = text.Substring(3);
-            }
-
-            if (text.EndsWith("```", StringComparison.Ordinal))
-            {
-                text = text.Substring(0, text.Length - 3);
-            }
-
-            return text.Trim();
-        }
+        private sealed record Attempt(ScriptDto? Script, IReadOnlyList<string> Issues, string Model);
 
         private async Task LogApiUsageAsync(string userId, string provider, int callCount, decimal cost)
         {

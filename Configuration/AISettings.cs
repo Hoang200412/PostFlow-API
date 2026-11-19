@@ -6,6 +6,9 @@ namespace PostFlow.Configuration
     {
         public OpenRouterSettings OpenRouter { get; set; } = new();
         public string GeminiApiKey { get; set; } = string.Empty;
+
+        /// <summary>Danh sách model Gemini thử lần lượt. Để trống thì dùng danh sách mặc định trong GeminiClient.</summary>
+        public List<string> GeminiModels { get; set; } = new();
     }
 
     public class OpenRouterSettings

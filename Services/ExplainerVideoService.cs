@@ -19,6 +19,8 @@ namespace PostFlow.Services
         private const string VideoTopicRequiredMessage = "Chủ đề video không được để trống.";
         private const string DefaultTargetAudience = "Khán giả đại chúng";
 
+        private const double RetryTemperature = 0.4;
+
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true
@@ -47,8 +49,10 @@ namespace PostFlow.Services
 
             try
             {
-                var result = await RequestJsonAsync<ExplainerResearchResponse>(
-                    ExplainerPromptBuilder.BuildResearchPrompt(request),
+                var result = await RequestValidatedJsonAsync<ExplainerResearchResponse>(
+                    issues => ExplainerPromptBuilder.BuildResearchPrompt(request, issues),
+                    GeminiSchemas.Research(),
+                    ExplainerOutputValidator.ValidateResearch,
                     emptyResponseMessage: "AI không phản hồi kết quả nghiên cứu hợp lệ.");
 
                 if (string.IsNullOrWhiteSpace(result.CoreDefinition))
@@ -71,8 +75,10 @@ namespace PostFlow.Services
         {
             try
             {
-                var result = await RequestJsonAsync<ExplainerStoryboardResponse>(
-                    ExplainerPromptBuilder.BuildStoryboardPrompt(request),
+                var result = await RequestValidatedJsonAsync<ExplainerStoryboardResponse>(
+                    issues => ExplainerPromptBuilder.BuildStoryboardPrompt(request, issues),
+                    GeminiSchemas.Storyboard(),
+                    candidate => ExplainerOutputValidator.ValidateStoryboard(candidate, request),
                     emptyResponseMessage: "AI không phản hồi kịch bản phân cảnh hợp lệ.");
 
                 if (result.Scenes == null || result.Scenes.Count == 0)
@@ -81,6 +87,12 @@ namespace PostFlow.Services
                 }
 
                 EnrichScenes(result.Scenes, request.Category);
+
+                var downgraded = ExplainerSceneNormalizer.DowngradeIncompleteScenes(result.Scenes);
+                if (downgraded > 0)
+                {
+                    _logger.LogWarning("Hạ {Count} cảnh thiếu dữ liệu bắt buộc về hero để không render khung trống.", downgraded);
+                }
                 result.Topic = request.Topic;
                 result.AspectRatio = request.AspectRatio;
                 return result;
@@ -129,17 +141,77 @@ namespace PostFlow.Services
             return jobId;
         }
 
-        private async Task<T> RequestJsonAsync<T>(string prompt, string emptyResponseMessage) where T : class
+        /// <summary>
+        /// Gọi AI, kiểm tra chất lượng đầu ra; nếu có lỗi thì sinh lại đúng một lần kèm danh sách lỗi.
+        /// Sau lần thử lại, trả về bản ít lỗi hơn thay vì từ chối hẳn (bản đó vẫn dùng được khi không có lỗi nghiêm trọng).
+        /// </summary>
+        private async Task<T> RequestValidatedJsonAsync<T>(
+            Func<IReadOnlyList<string>?, ExplainerPrompt> buildPrompt,
+            object schema,
+            Func<T, IReadOnlyList<string>> validate,
+            string emptyResponseMessage) where T : class
         {
-            var responseText = await _gemini.GenerateJsonAsync(prompt);
-            if (string.IsNullOrWhiteSpace(responseText))
+            var first = await TryRequestAsync(buildPrompt(null), schema, validate, temperature: null);
+            if (first.Result != null && first.Issues.Count == 0) return first.Result;
+
+            var retryIssues = first.Issues.Count > 0 ? first.Issues : new[] { "Đầu ra không phải JSON hợp lệ theo schema." };
+            _logger.LogWarning("Đầu ra AI chưa đạt ({Count} lỗi), sinh lại: {Issues}", retryIssues.Count, string.Join(" | ", retryIssues));
+
+            Attempt<T> second;
+            try
             {
-                throw new BadRequestException(emptyResponseMessage);
+                second = await TryRequestAsync(buildPrompt(retryIssues), schema, validate, temperature: RetryTemperature);
+            }
+            catch (Exception ex) when (first.Result != null)
+            {
+                _logger.LogWarning(ex, "Lần sinh lại thất bại, dùng bản đầu tiên.");
+                return first.Result;
             }
 
-            return JsonSerializer.Deserialize<T>(AiJsonExtractor.Extract(responseText), JsonOptions)
-                ?? throw new BadRequestException(emptyResponseMessage);
+            var best = PickBest(first, second) ?? throw new BadRequestException(emptyResponseMessage);
+            if (best.Issues.Count > 0)
+            {
+                _logger.LogWarning("Dùng bản còn {Count} cảnh báo chất lượng: {Issues}", best.Issues.Count, string.Join(" | ", best.Issues));
+            }
+            return best.Result!;
         }
+
+        private static Attempt<T>? PickBest<T>(Attempt<T> first, Attempt<T> second) where T : class
+        {
+            if (second.Result == null) return first.Result == null ? null : first;
+            if (first.Result == null) return second;
+            return second.Issues.Count <= first.Issues.Count ? second : first;
+        }
+
+        private async Task<Attempt<T>> TryRequestAsync<T>(
+            ExplainerPrompt prompt, object schema, Func<T, IReadOnlyList<string>> validate, double? temperature) where T : class
+        {
+            var responseText = await _gemini.GenerateJsonAsync(
+                prompt.User,
+                new GeminiRequestOptions(prompt.System, schema, temperature));
+
+            if (string.IsNullOrWhiteSpace(responseText))
+            {
+                return new Attempt<T>(null, Array.Empty<string>());
+            }
+
+            T? parsed;
+            try
+            {
+                parsed = JsonSerializer.Deserialize<T>(AiJsonExtractor.Extract(responseText), JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Không đọc được JSON từ AI.");
+                return new Attempt<T>(null, Array.Empty<string>());
+            }
+
+            return parsed == null
+                ? new Attempt<T>(null, Array.Empty<string>())
+                : new Attempt<T>(parsed, validate(parsed));
+        }
+
+        private sealed record Attempt<T>(T? Result, IReadOnlyList<string> Issues) where T : class;
 
         /// <summary>Chuẩn hóa loại scene, gán lĩnh vực và icon trực quan cho từng phân cảnh AI sinh ra.</summary>
         private static void EnrichScenes(IEnumerable<ExplainerSceneDto> scenes, string? requestedCategory)

@@ -36,7 +36,11 @@ namespace PostFlow.Models.DTOs.Requests
 
         public string Pitch { get; set; } = "+0Hz";
 
+        /// <summary>Kết quả nghiên cứu ở bước trước; khi có, storyboard bám theo dữ kiện, hook và dàn ý trong đó.</summary>
         public ExplainerResearchDossierDto? ResearchDossier { get; set; }
+
+        /// <summary>Hook mở đầu người dùng đã chọn ở bước nghiên cứu.</summary>
+        public string? SelectedHook { get; set; }
 
         public List<ExplainerSceneDto>? CustomScenes { get; set; }
     }
