@@ -1,13 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Explainer;
 
 namespace PostFlow.Services.Script
 {
-    public static class ScriptOutputValidator
+    public static partial class ScriptOutputValidator
     {
+        private const int MinWordsForDiacriticCheck = 20;
+        private const double MinAccentedWordRatio = 0.25;
+
+        [GeneratedRegex(@"[\p{L}\p{N}]+")]
+        private static partial Regex WordRegex();
+
         public static IReadOnlyList<string> ValidateScript(ScriptDto script, string? targetDuration)
         {
             var issues = new List<string>();
@@ -25,6 +32,8 @@ namespace PostFlow.Services.Script
                 if (string.IsNullOrWhiteSpace(scene.VisualKeyword)) issues.Add($"{label}: thiếu visualKeyword.");
                 if (scene.Duration <= 0) issues.Add($"{label}: duration phải lớn hơn 0.");
             }
+
+            ValidateDiacritics(script.Scenes.Select(scene => scene.Narration), issues);
 
             if (script.Scenes.Count > 0)
             {
@@ -48,6 +57,20 @@ namespace PostFlow.Services.Script
             }
 
             return issues;
+        }
+
+        private static void ValidateDiacritics(IEnumerable<string?> narrations, List<string> issues)
+        {
+            var words = narrations
+                .SelectMany(text => WordRegex().Matches(text ?? string.Empty).Select(match => match.Value))
+                .ToList();
+            if (words.Count < MinWordsForDiacriticCheck) return;
+
+            var accented = words.Count(word => word.Any(ch => ch > 'ÿ' || ch is 'đ' or 'Đ' || "àáâãèéêìíòóôõùúýÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝ".Contains(ch)));
+            if (accented / (double)words.Count < MinAccentedWordRatio)
+            {
+                issues.Add("narration đang viết tiếng Việt không dấu; hãy viết tiếng Việt có dấu đầy đủ.");
+            }
         }
     }
 }

@@ -98,4 +98,22 @@ namespace PostFlow.Services.Explainer
         public static int CountWords(string? text) =>
             (text ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
     }
+
+    [Obsolete("Sử dụng NarrationHelper thay thế.")]
+    public static class NarrationPacing
+    {
+        public const double WordsPerSecond = NarrationHelper.WordsPerSecond;
+        public const int DefaultSeconds = NarrationHelper.DefaultSeconds;
+        public static DurationRange ParseTarget(string? target) => NarrationHelper.ParseTarget(target);
+        public static (int Min, int Max) WordBudget(DurationRange range, double lowerFactor = 0.7, double upperFactor = 1.25) => NarrationHelper.WordBudget(range, lowerFactor, upperFactor);
+        public static int TargetWords(DurationRange range) => NarrationHelper.TargetWords(range);
+    }
+
+    [Obsolete("Sử dụng NarrationHelper thay thế.")]
+    public static class NarrationSanitizer
+    {
+        public static string Clean(string? text) => NarrationHelper.Clean(text);
+        public static string EnsureTerminalPunctuation(string text) => NarrationHelper.EnsureTerminalPunctuation(text);
+        public static int CountWords(string? text) => NarrationHelper.CountWords(text);
+    }
 }

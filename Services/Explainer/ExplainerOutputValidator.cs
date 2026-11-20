@@ -194,5 +194,9 @@ namespace PostFlow.Services.Explainer
                 .Select(match => match.Value)
                 .Where(word => word.Length >= MinWordLength || word.Any(char.IsDigit))
                 .ToHashSet();
+
+        [Obsolete("Sử dụng PostFlow.Services.Script.ScriptOutputValidator.ValidateScript thay thế.")]
+        public static IReadOnlyList<string> ValidateScript(ScriptDto script, string? targetDuration) =>
+            PostFlow.Services.Script.ScriptOutputValidator.ValidateScript(script, targetDuration);
     }
 }

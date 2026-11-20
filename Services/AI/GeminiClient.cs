@@ -33,7 +33,7 @@ namespace PostFlow.Services.AI
             "gemini-3.1-flash-lite"
         };
 
-        private static readonly string[] UnsupportedParameterMarkers = { "thinking", "Unknown field", "INVALID_ARGUMENT" };
+        private static readonly string[] UnsupportedParameterMarkers = { "thinking", "Unknown field", "INVALID_ARGUMENT", "tools", "googleSearch" };
 
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly AISettings _settings;
@@ -106,7 +106,7 @@ namespace PostFlow.Services.AI
 
             foreach (var attempt in BuildAttempts(options))
             {
-                var payload = BuildPayload(prompt, options, attempt.DisableThinking, attempt.IncludeSchema);
+                var payload = BuildPayload(prompt, options, attempt.DisableThinking, attempt.IncludeSchema, attempt.IncludeTools);
                 response = await SendAsync(client, apiKey, model, payload, cancellationToken);
 
                 if (response.Transient)
@@ -126,15 +126,36 @@ namespace PostFlow.Services.AI
             return null;
         }
 
-        private static IEnumerable<(bool DisableThinking, bool IncludeSchema)> BuildAttempts(GeminiRequestOptions? options)
+        private static IEnumerable<(bool DisableThinking, bool IncludeSchema, bool IncludeTools)> BuildAttempts(GeminiRequestOptions? options)
         {
             var hasSchema = options?.ResponseSchema != null;
-            yield return (true, hasSchema);
-            yield return (false, hasSchema);
-            if (hasSchema) yield return (false, false);
+            var hasTools = options?.EnableGoogleSearch == true;
+
+            // Attempt 1: Gửi cấu hình đầy đủ (kèm thinking_config và tools nếu có)
+            yield return (DisableThinking: true, IncludeSchema: hasSchema, IncludeTools: hasTools);
+
+            // Attempt 2: Nếu có tools và bị lỗi parameter, bỏ tools
+            if (hasTools)
+            {
+                yield return (DisableThinking: true, IncludeSchema: hasSchema, IncludeTools: false);
+            }
+
+            // Attempt 3: Bỏ thinking_config (để tương thích model không hỗ trợ trường này)
+            yield return (DisableThinking: false, IncludeSchema: hasSchema, IncludeTools: false);
+
+            // Attempt 4: Hạ cấp cuối cùng, tắt schema để model trả text tự do
+            if (hasSchema)
+            {
+                yield return (DisableThinking: false, IncludeSchema: false, IncludeTools: false);
+            }
         }
 
-        internal static object BuildPayload(string prompt, GeminiRequestOptions? options, bool disableThinking, bool includeSchema)
+        internal static object BuildPayload(
+            string prompt,
+            GeminiRequestOptions? options,
+            bool disableThinking,
+            bool includeSchema,
+            bool includeTools = false)
         {
             var generationConfig = new Dictionary<string, object>
             {
@@ -149,14 +170,34 @@ namespace PostFlow.Services.AI
 
             if (disableThinking)
             {
-                generationConfig["thinking_config"] = new { thinking_budget = 0 };
+                var budget = options?.ThinkingBudget ?? 0;
+                generationConfig["thinking_config"] = new { thinking_budget = budget };
+            }
+
+            var contents = new List<object>();
+            if (options?.ConversationHistory is { Count: > 0 })
+            {
+                foreach (var msg in options.ConversationHistory)
+                {
+                    contents.Add(new { role = msg.Role, parts = new[] { new { text = msg.Text } } });
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(prompt))
+            {
+                contents.Add(new { role = "user", parts = new[] { new { text = prompt } } });
             }
 
             var payload = new Dictionary<string, object>
             {
-                ["contents"] = new[] { new { role = "user", parts = new[] { new { text = prompt } } } },
+                ["contents"] = contents,
                 ["generationConfig"] = generationConfig
             };
+
+            if (includeTools && options?.EnableGoogleSearch == true)
+            {
+                payload["tools"] = new[] { new { googleSearch = new { } } };
+            }
 
             if (!string.IsNullOrWhiteSpace(options?.SystemInstruction))
             {

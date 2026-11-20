@@ -54,7 +54,10 @@ namespace PostFlow.Services
                     issues => ExplainerPromptBuilder.BuildResearchPrompt(request, issues),
                     GeminiSchemas.Research(),
                     ExplainerOutputValidator.ValidateResearch,
-                    emptyResponseMessage: "AI không phản hồi kết quả nghiên cứu hợp lệ.");
+                    emptyResponseMessage: "AI không phản hồi kết quả nghiên cứu hợp lệ.",
+                    temperature: 0.3,
+                    thinkingBudget: 0,
+                    enableGoogleSearch: true);
 
                 if (string.IsNullOrWhiteSpace(result.CoreDefinition))
                 {
@@ -80,7 +83,9 @@ namespace PostFlow.Services
                     issues => ExplainerPromptBuilder.BuildStoryboardPrompt(request, issues),
                     GeminiSchemas.Storyboard(),
                     candidate => ExplainerOutputValidator.ValidateStoryboard(candidate, request),
-                    emptyResponseMessage: "AI không phản hồi kịch bản phân cảnh hợp lệ.");
+                    emptyResponseMessage: "AI không phản hồi kịch bản phân cảnh hợp lệ.",
+                    temperature: null,
+                    thinkingBudget: 1024);
 
                 if (result.Scenes == null || result.Scenes.Count == 0)
                 {
@@ -150,18 +155,52 @@ namespace PostFlow.Services
             Func<IReadOnlyList<string>?, ExplainerPrompt> buildPrompt,
             object schema,
             Func<T, IReadOnlyList<string>> validate,
-            string emptyResponseMessage) where T : class
+            string emptyResponseMessage,
+            double? temperature = null,
+            int? thinkingBudget = null,
+            bool enableGoogleSearch = false) where T : class
         {
-            var first = await TryRequestAsync(buildPrompt(null), schema, validate, temperature: null);
+            var initialPrompt = buildPrompt(null);
+            var initialOptions = new GeminiRequestOptions(
+                SystemInstruction: initialPrompt.System,
+                ResponseSchema: schema,
+                Temperature: temperature,
+                ThinkingBudget: thinkingBudget,
+                EnableGoogleSearch: enableGoogleSearch);
+
+            var first = await TryRequestAsync(initialPrompt.User, initialOptions, validate);
             if (first.Result != null && first.Issues.Count == 0) return first.Result;
 
             var retryIssues = first.Issues.Count > 0 ? first.Issues : new[] { "Đầu ra không phải JSON hợp lệ theo schema." };
-            _logger.LogWarning("Đầu ra AI chưa đạt ({Count} lỗi), sinh lại: {Issues}", retryIssues.Count, string.Join(" | ", retryIssues));
+            _logger.LogWarning("Đầu ra AI chưa đạt ({Count} lỗi), thử lại: {Issues}", retryIssues.Count, string.Join(" | ", retryIssues));
 
             Attempt<T> second;
             try
             {
-                second = await TryRequestAsync(buildPrompt(retryIssues), schema, validate, temperature: RetryTemperature);
+                // Multi-turn conversation retry: gửi câu hỏi ban đầu + câu trả lời nháp của AI + yêu cầu sửa cụ thể
+                var conversationHistory = new List<GeminiChatMessage>();
+                string retryPrompt;
+
+                if (!string.IsNullOrWhiteSpace(first.RawText))
+                {
+                    conversationHistory.Add(new GeminiChatMessage("user", initialPrompt.User));
+                    conversationHistory.Add(new GeminiChatMessage("model", first.RawText));
+                    retryPrompt = $"BẢN TRƯỚC CÓ LỖI, HÃY SỬA TẤT CẢ:\n{string.Join("\n", retryIssues.Select(i => "- " + i))}\nHãy giữ lại các phần tốt và sửa chính xác các lỗi trên theo đúng schema JSON.";
+                }
+                else
+                {
+                    retryPrompt = buildPrompt(retryIssues).User;
+                }
+
+                var retryOptions = new GeminiRequestOptions(
+                    SystemInstruction: initialPrompt.System,
+                    ResponseSchema: schema,
+                    Temperature: RetryTemperature,
+                    ThinkingBudget: thinkingBudget,
+                    EnableGoogleSearch: enableGoogleSearch,
+                    ConversationHistory: conversationHistory);
+
+                second = await TryRequestAsync(retryPrompt, retryOptions, validate);
             }
             catch (Exception ex) when (first.Result != null)
             {
@@ -185,15 +224,13 @@ namespace PostFlow.Services
         }
 
         private async Task<Attempt<T>> TryRequestAsync<T>(
-            ExplainerPrompt prompt, object schema, Func<T, IReadOnlyList<string>> validate, double? temperature) where T : class
+            string promptUser, GeminiRequestOptions options, Func<T, IReadOnlyList<string>> validate) where T : class
         {
-            var responseText = await _gemini.GenerateJsonAsync(
-                prompt.User,
-                new GeminiRequestOptions(prompt.System, schema, temperature));
+            var responseText = await _gemini.GenerateJsonAsync(promptUser, options);
 
             if (string.IsNullOrWhiteSpace(responseText))
             {
-                return new Attempt<T>(null, Array.Empty<string>());
+                return new Attempt<T>(null, Array.Empty<string>(), string.Empty);
             }
 
             T? parsed;
@@ -204,15 +241,15 @@ namespace PostFlow.Services
             catch (JsonException ex)
             {
                 _logger.LogWarning(ex, "Không đọc được JSON từ AI.");
-                return new Attempt<T>(null, Array.Empty<string>());
+                return new Attempt<T>(null, Array.Empty<string>(), responseText);
             }
 
             return parsed == null
-                ? new Attempt<T>(null, Array.Empty<string>())
-                : new Attempt<T>(parsed, validate(parsed));
+                ? new Attempt<T>(null, Array.Empty<string>(), responseText)
+                : new Attempt<T>(parsed, validate(parsed), responseText);
         }
 
-        private sealed record Attempt<T>(T? Result, IReadOnlyList<string> Issues) where T : class;
+        private sealed record Attempt<T>(T? Result, IReadOnlyList<string> Issues, string RawText) where T : class;
 
         /// <summary>Chuẩn hóa loại scene, gán lĩnh vực và icon trực quan cho từng phân cảnh AI sinh ra.</summary>
         private static void EnrichScenes(IEnumerable<ExplainerSceneDto> scenes, string? requestedCategory)
