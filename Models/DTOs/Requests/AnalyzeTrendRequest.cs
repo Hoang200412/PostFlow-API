@@ -14,5 +14,8 @@ namespace PostFlow.Models.DTOs.Requests
         public string[]? Hashtags { get; set; }
 
         public string? AdditionalContext { get; set; }
+
+        /// <summary>Id video benchmark đã lưu. Khi có, prompt phân tích được kèm số liệu thật thay vì để AI tự đoán.</summary>
+        public string? TrendVideoId { get; set; }
     }
 }

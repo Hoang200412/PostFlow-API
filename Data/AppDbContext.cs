@@ -24,6 +24,10 @@ namespace PostFlow.Data
         public DbSet<VideoCreationSession> VideoCreationSessions { get; set; } = null!;
         public DbSet<Post> Posts { get; set; } = null!;
         public DbSet<MediaLibraryAsset> MediaLibraryAssets { get; set; } = null!;
+        public DbSet<TrendChannel> TrendChannels { get; set; } = null!;
+        public DbSet<TrendVideo> TrendVideos { get; set; } = null!;
+        public DbSet<TrendVideoSnapshot> TrendVideoSnapshots { get; set; } = null!;
+        public DbSet<TrendCollectionRun> TrendCollectionRuns { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -232,6 +236,50 @@ namespace PostFlow.Data
                     .HasForeignKey(e => e.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
                 entity.HasIndex(e => new { e.UserId, e.CreatedAt });
+            });
+
+            // 12. Dữ liệu benchmark xu hướng
+            modelBuilder.Entity<TrendChannel>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.Platform, e.ExternalId }).IsUnique();
+            });
+
+            modelBuilder.Entity<TrendVideo>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Tags)
+                    .HasColumnType("jsonb")
+                    .HasConversion(
+                        value => JsonSerializer.Serialize(value, (JsonSerializerOptions)null!),
+                        value => JsonSerializer.Deserialize<List<string>>(value, (JsonSerializerOptions)null!) ?? new List<string>());
+                entity.Property(e => e.Tags).Metadata.SetValueComparer(stringListComparer);
+
+                entity.HasIndex(e => new { e.Platform, e.ExternalId }).IsUnique();
+                entity.HasIndex(e => new { e.Platform, e.CategorySlug, e.PublishedAt });
+                entity.HasIndex(e => new { e.IsTracking, e.PublishedAt });
+
+                entity.HasOne(e => e.Channel)
+                    .WithMany(c => c.Videos)
+                    .HasForeignKey(e => e.TrendChannelId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<TrendVideoSnapshot>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.TrendVideoId, e.CapturedAt });
+
+                entity.HasOne(e => e.TrendVideo)
+                    .WithMany(v => v.Snapshots)
+                    .HasForeignKey(e => e.TrendVideoId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<TrendCollectionRun>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.StartedAt);
             });
         }
 

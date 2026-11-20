@@ -1,7 +1,10 @@
-namespace PostFlow.Services.Explainer
+using System.Collections.Generic;
+using PostFlow.Services.Explainer;
+
+namespace PostFlow.Services.AI
 {
     /// <summary>Schema đầu ra (responseSchema của Gemini) cho các lần sinh nội dung.</summary>
-    internal static class GeminiSchemas
+    public static class GeminiSchemas
     {
         private static Dictionary<string, object> Str(string? description = null, bool nullable = false)
         {

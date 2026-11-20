@@ -2,10 +2,12 @@ using Microsoft.AspNetCore.Identity;
 using PostFlow.Configuration;
 using PostFlow.Models;
 using PostFlow.Services;
+using PostFlow.Services.AI;
 using PostFlow.Services.Explainer;
 using PostFlow.Services.Interfaces;
 using PostFlow.Services.Publishers;
 using PostFlow.Services.StockVideo;
+using PostFlow.Services.Trends;
 
 namespace PostFlow.Extensions;
 
@@ -26,6 +28,7 @@ public static class DependencyInjectionExtensions
         services.Configure<AISettings>(configuration.GetSection("AI"));
         services.Configure<StockVideoSettings>(configuration.GetSection("StockVideo"));
         services.Configure<ExplainerVideoSettings>(configuration.GetSection(ExplainerVideoSettings.SectionName));
+        services.Configure<TrendCollectionSettings>(configuration.GetSection(TrendCollectionSettings.SectionName));
 
         // Register Platform-specific publishers
         services.AddTransient<ISocialPublisher, YouTubePublisher>();
@@ -57,6 +60,15 @@ public static class DependencyInjectionExtensions
         services.AddScoped<ExplainerVideoBackgroundJobs>();
         services.AddHttpClient<PexelsStockVideoProvider>();
         services.AddScoped<IStockVideoProvider, PexelsStockVideoProvider>();
+
+        // Register Trend benchmark collection (YouTube Data API, oEmbed, nhập tay)
+        services.AddSingleton(TimeProvider.System);
+        services.AddHttpClient(YouTubeDataClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddHttpClient(TrendOEmbedClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15));
+        services.AddScoped<IYouTubeDataClient, YouTubeDataClient>();
+        services.AddScoped<ITrendOEmbedClient, TrendOEmbedClient>();
+        services.AddScoped<ITrendCollector, TrendCollector>();
+        services.AddScoped<ITrendManualImporter, TrendManualImporter>();
 
         // Register HttpClient & MemoryCache
         services.AddHttpClient();

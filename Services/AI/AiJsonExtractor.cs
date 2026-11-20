@@ -1,4 +1,6 @@
-namespace PostFlow.Services.Explainer
+using System;
+
+namespace PostFlow.Services.AI
 {
     public static class AiJsonExtractor
     {

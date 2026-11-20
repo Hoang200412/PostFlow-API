@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Xml.Linq;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PostFlow.Configuration;
@@ -18,121 +18,339 @@ using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
+using PostFlow.Services.Trends;
 
 namespace PostFlow.Services
 {
     public class TrendService : ITrendService
     {
-        private readonly AppDbContext _context;
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IMemoryCache _memoryCache;
-        private readonly AISettings _aiSettings;
-        private readonly PlatformSettings _platformSettings;
-        private readonly ILogger<TrendService> _logger;
+        /// <summary>Số video tối đa nạp để xếp hạng trong một request feed.</summary>
+        private const int MaxCandidates = 2000;
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             PropertyNameCaseInsensitive = true
         };
 
+        private static readonly string[] SampleFilters = { "trending", "popular", "viral", "control", "manual", "all" };
+
+        private readonly AppDbContext _context;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ITrendCollector _collector;
+        private readonly ITrendManualImporter _manualImporter;
+        private readonly IYouTubeDataClient _youTube;
+        private readonly IGeminiClient _geminiClient;
+        private readonly IBackgroundJobClient _backgroundJobClient;
+        private readonly AISettings _aiSettings;
+        private readonly TrendCollectionSettings _trendSettings;
+        private readonly TimeProvider _time;
+        private readonly ILogger<TrendService> _logger;
+
         public TrendService(
             AppDbContext context,
             IHttpClientFactory httpClientFactory,
-            IMemoryCache memoryCache,
+            ITrendCollector collector,
+            ITrendManualImporter manualImporter,
+            IYouTubeDataClient youTube,
+            IGeminiClient geminiClient,
+            IBackgroundJobClient backgroundJobClient,
             IOptions<AISettings> aiSettings,
-            IOptions<PlatformSettings> platformSettings,
+            IOptions<TrendCollectionSettings> trendSettings,
+            TimeProvider time,
             ILogger<TrendService> logger)
         {
             _context = context;
             _httpClientFactory = httpClientFactory;
-            _memoryCache = memoryCache;
+            _collector = collector;
+            _manualImporter = manualImporter;
+            _youTube = youTube;
+            _geminiClient = geminiClient;
+            _backgroundJobClient = backgroundJobClient;
             _aiSettings = aiSettings.Value;
-            _platformSettings = platformSettings.Value;
+            _trendSettings = trendSettings.Value;
+            _time = time;
             _logger = logger;
         }
 
-        public async Task<IEnumerable<TrendTopicDto>> GetTrendingTopicsAsync(string? platform = null, string? category = null)
+        private DateTime UtcNow => _time.GetUtcNow().UtcDateTime;
+
+        // ------------------------------------------------------------------
+        // Feed
+        // ------------------------------------------------------------------
+
+        public async Task<TrendFeedResponse> GetTrendingTopicsAsync(TrendFeedQuery query)
         {
-            var cacheKey = $"trends_platform_feed_{platform ?? "all"}_{category ?? "all"}";
-            if (_memoryCache.TryGetValue(cacheKey, out List<TrendTopicDto>? cachedTrends) && cachedTrends != null && cachedTrends.Count > 0)
+            var (platform, category, sample) = ValidateAndNormalizeQuery(query);
+            var since = UtcNow.AddDays(-Math.Clamp(query.Days, 1, 365));
+            var limit = Math.Clamp(query.Limit, 1, 100);
+
+            var candidates = await FilterVideos(platform, category, sample, since, query.ShortsOnly)
+                .Include(v => v.Channel)
+                .OrderByDescending(v => v.LatestViews)
+                .Take(MaxCandidates)
+                .ToListAsync();
+
+            var populations = await LoadVelocityPopulationsAsync(since);
+            var ranked = RankByVelocity(candidates, limit);
+            var items = await EnrichWithSnapshotsAsync(ranked, populations);
+
+            return new TrendFeedResponse
             {
-                return cachedTrends;
-            }
-
-            // 1. Nếu tìm kiếm trên YouTube hoặc Tất cả, thử lấy dữ liệu video thật từ YouTube Data API
-            if (string.IsNullOrWhiteSpace(platform) || platform == "all" || platform.Equals("youtube", StringComparison.OrdinalIgnoreCase))
-            {
-                var ytApiKey = !string.IsNullOrWhiteSpace(_platformSettings?.YouTube?.ApiKey)
-                    ? _platformSettings.YouTube.ApiKey
-                    : Environment.GetEnvironmentVariable("YOUTUBE_API_KEY");
-
-                if (!string.IsNullOrWhiteSpace(ytApiKey))
-                {
-                    try
-                    {
-                        var ytVideos = await FetchRealTrendingFromYouTubeApiAsync(ytApiKey, category);
-                        if (ytVideos != null && ytVideos.Count > 0)
-                        {
-                            _memoryCache.Set(cacheKey, ytVideos, TimeSpan.FromMinutes(15));
-                            return ytVideos;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Lỗi khi lấy video thật từ YouTube Data API: {Msg}", ex.Message);
-                    }
-                }
-            }
-
-            // 2. Thu thập và tổng hợp dữ liệu video xu hướng thực tế qua AI Tracker (OpenRouter)
-            var openRouterKey = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.ApiKey)
-                ? _aiSettings.OpenRouter.ApiKey
-                : Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
-
-            if (!string.IsNullOrWhiteSpace(openRouterKey))
-            {
-                try
-                {
-                    var aiTrends = await FetchTrendingFromOpenRouterAsync(openRouterKey, platform, category);
-                    if (aiTrends != null && aiTrends.Count > 0)
-                    {
-                        _memoryCache.Set(cacheKey, aiTrends, TimeSpan.FromMinutes(15));
-                        return aiTrends;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "OpenRouter Fetch Trends thất bại: {Msg}", ex.Message);
-                }
-            }
-
-            // 3. Thu thập qua Google Gemini
-            var geminiKey = !string.IsNullOrWhiteSpace(_aiSettings?.GeminiApiKey)
-                ? _aiSettings.GeminiApiKey
-                : Environment.GetEnvironmentVariable("GEMINI_API_KEY");
-
-            if (!string.IsNullOrWhiteSpace(geminiKey))
-            {
-                try
-                {
-                    var geminiTrends = await FetchTrendingFromGeminiAsync(geminiKey, platform, category);
-                    if (geminiTrends != null && geminiTrends.Count > 0)
-                    {
-                        _memoryCache.Set(cacheKey, geminiTrends, TimeSpan.FromMinutes(15));
-                        return geminiTrends;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Gemini Fetch Trends thất bại: {Msg}", ex.Message);
-                }
-            }
-
-            return new List<TrendTopicDto>();
+                Items = items,
+                TotalMatched = candidates.Count,
+                LastCollectedAt = await LastCollectedAtAsync(),
+                CollectorConfigured = _youTube.IsConfigured,
+                Notice = BuildNotice(platform, items.Count)
+            };
         }
+
+        private (string? Platform, string? Category, string Sample) ValidateAndNormalizeQuery(TrendFeedQuery query)
+        {
+            var platform = NormalizeFilter(query.Platform);
+            if (platform != null && !TrendPlatforms.All.Contains(platform))
+            {
+                throw new BadRequestException($"Nền tảng không hợp lệ. Chọn một trong: all, {string.Join(", ", TrendPlatforms.All)}.");
+            }
+
+            var category = NormalizeFilter(query.Category);
+            var sample = NormalizeFilter(query.Sample) ?? "trending";
+            if (!SampleFilters.Contains(sample))
+            {
+                throw new BadRequestException($"Nhóm mẫu không hợp lệ. Chọn một trong: {string.Join(", ", SampleFilters)}.");
+            }
+
+            return (platform, category, sample);
+        }
+
+        private IQueryable<TrendVideo> FilterVideos(
+            string? platform, string? category, string sample, DateTime since, bool shortsOnly)
+        {
+            var query = _context.TrendVideos.AsNoTracking()
+                .Where(v => (v.PublishedAt ?? v.FirstSeenAt) >= since);
+
+            if (platform != null) query = query.Where(v => v.Platform == platform);
+            if (category != null) query = query.Where(v => v.CategorySlug == category);
+            if (shortsOnly) query = query.Where(v => v.IsShort);
+
+            return sample switch
+            {
+                "popular" => query.Where(v => v.InPopularChart),
+                "viral" => query.Where(v => v.InViralSample),
+                "control" => query.Where(v => v.InControlSample),
+                "manual" => query.Where(v => v.SubmittedByUserId != null || v.DataSource != TrendDataSources.YouTubeApi),
+                "all" => query,
+                _ => query.Where(v => v.InPopularChart || v.InViralSample
+                    || v.SubmittedByUserId != null || v.DataSource != TrendDataSources.YouTubeApi)
+            };
+        }
+
+        private static List<(TrendVideo Video, double? Velocity)> RankByVelocity(List<TrendVideo> candidates, int limit) =>
+            candidates
+                .Select(v => (Video: v, Velocity: Velocity(v)))
+                .OrderByDescending(x => x.Velocity.HasValue)
+                .ThenByDescending(x => x.Velocity)
+                .ThenByDescending(x => x.Video.LatestViews)
+                .Take(limit)
+                .ToList();
+
+        private async Task<List<TrendTopicDto>> EnrichWithSnapshotsAsync(
+            List<(TrendVideo Video, double? Velocity)> ranked,
+            Dictionary<(string Platform, string Category), List<double>> populations)
+        {
+            var ids = ranked.Select(x => x.Video.Id).ToList();
+            var snapshots = await _context.TrendVideoSnapshots.AsNoTracking()
+                .Where(s => ids.Contains(s.TrendVideoId))
+                .OrderByDescending(s => s.CapturedAt)
+                .ToListAsync();
+            var snapshotsByVideo = snapshots.GroupBy(s => s.TrendVideoId).ToDictionary(g => g.Key, g => g.ToList());
+
+            return ranked.Select(x =>
+            {
+                var history = snapshotsByVideo.GetValueOrDefault(x.Video.Id) ?? new List<TrendVideoSnapshot>();
+                var population = populations.GetValueOrDefault((x.Video.Platform, x.Video.CategorySlug)) ?? new List<double>();
+                return x.Video.ToTopicDto(
+                    previousSnapshot: history.Skip(1).FirstOrDefault(),
+                    snapshotCount: history.Count,
+                    viralityScore: TrendMetrics.PercentileRank(x.Velocity, population));
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Quần thể views/giờ theo (nền tảng, danh mục) trên toàn bộ dữ liệu có số liệu, kể cả mẫu đối chứng,
+        /// để điểm virality là thứ hạng so với quần thể chứ không chỉ so với các video đang hiển thị.
+        /// </summary>
+        private async Task<Dictionary<(string Platform, string Category), List<double>>> LoadVelocityPopulationsAsync(DateTime since)
+        {
+            var rows = await _context.TrendVideos.AsNoTracking()
+                .Where(v => (v.PublishedAt ?? v.FirstSeenAt) >= since && v.LatestViews != null && v.PublishedAt != null)
+                .Select(v => new { v.Platform, v.CategorySlug, v.PublishedAt, v.LastSnapshotAt, v.FirstSeenAt, v.LatestViews })
+                .ToListAsync();
+
+            return rows
+                .Select(r => new
+                {
+                    Key = (r.Platform, r.CategorySlug),
+                    Velocity = TrendMetrics.ViewsPerHour(r.LatestViews, TrendMetrics.AgeHours(r.PublishedAt, r.LastSnapshotAt ?? r.FirstSeenAt))
+                })
+                .Where(r => r.Velocity.HasValue)
+                .GroupBy(r => r.Key)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.Velocity!.Value).ToList());
+        }
+
+        private static double? Velocity(TrendVideo video) =>
+            TrendMetrics.ViewsPerHour(video.LatestViews, TrendMetrics.AgeHours(video.PublishedAt, video.LastSnapshotAt ?? video.FirstSeenAt));
+
+        private string? BuildNotice(string? platform, int itemCount)
+        {
+            if (platform is TrendPlatforms.TikTok or TrendPlatforms.Reels)
+            {
+                return "TikTok và Facebook/Instagram không cung cấp API công khai để đọc video của người khác. "
+                    + "Video ở mục này do người dùng thêm bằng link; số liệu được đánh dấu là nhập tay.";
+            }
+
+            if (itemCount > 0) return null;
+
+            return _youTube.IsConfigured
+                ? "Chưa có dữ liệu phù hợp. Bộ thu thập chạy định kỳ mỗi ngày; quản trị viên có thể kích hoạt thu thập thủ công."
+                : "Máy chủ chưa cấu hình YouTube API key nên chưa thu thập được dữ liệu xu hướng.";
+        }
+
+        private async Task<DateTime?> LastCollectedAtAsync() =>
+            await _context.TrendCollectionRuns.AsNoTracking()
+                .Where(r => r.Kind == "discover" && r.Status == TrendRunStatuses.Succeeded)
+                .MaxAsync(r => r.FinishedAt);
+
+        private static string? NormalizeFilter(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            var normalized = value.Trim().ToLowerInvariant();
+            return normalized == "all" ? null : normalized;
+        }
+
+        // ------------------------------------------------------------------
+        // Nhập tay, lịch sử, thống kê, kích hoạt thu thập
+        // ------------------------------------------------------------------
+
+        public async Task<TrendTopicDto> ImportManualAsync(string userId, ManualTrendImportRequest request)
+        {
+            var video = await _manualImporter.ImportAsync(userId, request);
+
+            var channel = video.TrendChannelId == null ? null : await _context.TrendChannels.FindAsync(video.TrendChannelId);
+            video.Channel ??= channel;
+            var history = await _context.TrendVideoSnapshots.AsNoTracking()
+                .Where(s => s.TrendVideoId == video.Id)
+                .OrderByDescending(s => s.CapturedAt)
+                .ToListAsync();
+
+            return video.ToTopicDto(history.Skip(1).FirstOrDefault(), history.Count, viralityScore: null);
+        }
+
+        public async Task<IReadOnlyList<TrendSnapshotDto>> GetSnapshotsAsync(string trendVideoId)
+        {
+            var exists = await _context.TrendVideos.AnyAsync(v => v.Id == trendVideoId);
+            if (!exists) throw new NotFoundException($"Không tìm thấy video xu hướng với ID {trendVideoId}");
+
+            var snapshots = await _context.TrendVideoSnapshots.AsNoTracking()
+                .Where(s => s.TrendVideoId == trendVideoId)
+                .OrderBy(s => s.CapturedAt)
+                .ToListAsync();
+
+            return snapshots.Select(s => s.ToDto()).ToList();
+        }
+
+        public async Task<TrendCollectionStatsDto> GetCollectionStatsAsync()
+        {
+            var videos = _context.TrendVideos.AsNoTracking();
+            var quota = await _collector.GetQuotaStatusAsync();
+
+            var multiSnapshot = await _context.TrendVideoSnapshots
+                .GroupBy(s => s.TrendVideoId)
+                .Where(g => g.Count() >= 2)
+                .CountAsync();
+
+            var milestoneRows = await _context.TrendVideoSnapshots
+                .Where(s => s.MilestoneHours != null)
+                .GroupBy(s => s.MilestoneHours!.Value)
+                .Select(g => new { Milestone = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var recentRuns = await _context.TrendCollectionRuns.AsNoTracking()
+                .OrderByDescending(r => r.StartedAt)
+                .Take(20)
+                .ToListAsync();
+
+            return new TrendCollectionStatsDto
+            {
+                CollectorConfigured = _youTube.IsConfigured,
+                CollectorEnabled = _trendSettings.Enabled,
+                TotalVideos = await videos.CountAsync(),
+                TrackingVideos = await videos.CountAsync(v => v.IsTracking),
+                TotalSnapshots = await _context.TrendVideoSnapshots.CountAsync(),
+                VideosWithMultipleSnapshots = multiSnapshot,
+                TotalChannels = await _context.TrendChannels.CountAsync(),
+                VideosByPlatform = await CountByAsync(videos, v => v.Platform),
+                VideosByCategory = await CountByAsync(videos, v => v.CategorySlug),
+                VideosByDataSource = await CountByAsync(videos, v => v.DataSource),
+                VideosBySample = new Dictionary<string, int>
+                {
+                    [TrendVideoMapper.SampleNames.Popular] = await videos.CountAsync(v => v.InPopularChart),
+                    [TrendVideoMapper.SampleNames.Viral] = await videos.CountAsync(v => v.InViralSample),
+                    [TrendVideoMapper.SampleNames.Control] = await videos.CountAsync(v => v.InControlSample),
+                    [TrendVideoMapper.SampleNames.Manual] = await videos.CountAsync(v => v.SubmittedByUserId != null || v.DataSource != TrendDataSources.YouTubeApi)
+                },
+                SnapshotsByMilestone = milestoneRows
+                    .OrderBy(r => r.Milestone)
+                    .ToDictionary(r => r.Milestone.ToString(CultureInfo.InvariantCulture) + "h", r => r.Count),
+                QuotaUsedToday = quota.UsedToday,
+                QuotaDailyBudget = quota.DailyBudget,
+                ProviderQuotaExceeded = quota.ProviderQuotaExceeded,
+                LastCollectedAt = await LastCollectedAtAsync(),
+                RecentRuns = recentRuns.Select(r => r.ToDto()).ToList()
+            };
+        }
+
+        public TrendCollectionEnqueuedDto EnqueueDiscover(string? category)
+        {
+            var slug = NormalizeFilter(category);
+            if (slug != null && !_trendSettings.CategoryMap.ContainsKey(slug))
+            {
+                throw new BadRequestException($"Danh mục không hợp lệ. Chọn một trong: all, {string.Join(", ", _trendSettings.CategoryMap.Keys)}.");
+            }
+            EnsureCollectorReady();
+
+            var jobId = _backgroundJobClient.Enqueue<ITrendCollector>(c => c.DiscoverAsync(slug));
+            _logger.LogInformation("Đã đưa job thu thập xu hướng vào hàng đợi: {JobId} ({Category}).", jobId, slug ?? "all");
+            return new TrendCollectionEnqueuedDto { JobId = jobId, Kind = "discover", Category = slug };
+        }
+
+        public TrendCollectionEnqueuedDto EnqueueSnapshot()
+        {
+            EnsureCollectorReady();
+            var jobId = _backgroundJobClient.Enqueue<ITrendCollector>(c => c.SnapshotDueAsync());
+            return new TrendCollectionEnqueuedDto { JobId = jobId, Kind = "snapshot" };
+        }
+
+        private void EnsureCollectorReady()
+        {
+            if (!_trendSettings.Enabled) throw new BadRequestException("Bộ thu thập xu hướng đang tắt (TrendCollection:Enabled).");
+            if (!_youTube.IsConfigured) throw new BadRequestException("Máy chủ chưa cấu hình YouTube API key.");
+        }
+
+        private static async Task<Dictionary<string, int>> CountByAsync(
+            IQueryable<TrendVideo> videos, System.Linq.Expressions.Expression<Func<TrendVideo, string>> key)
+        {
+            var rows = await videos.GroupBy(key).Select(g => new { g.Key, Count = g.Count() }).ToListAsync();
+            return rows.ToDictionary(r => r.Key, r => r.Count);
+        }
+
+        // ------------------------------------------------------------------
+        // Phân tích bằng AI (ý kiến của mô hình, không phải số liệu đo được)
+        // ------------------------------------------------------------------
 
         public async Task<TrendAnalysisResponse> AnalyzeTrendAsync(string userId, AnalyzeTrendRequest request)
         {
+            var measuredContext = await BuildMeasuredContextAsync(request.TrendVideoId);
+
             var openRouterKey = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.ApiKey)
                 ? _aiSettings.OpenRouter.ApiKey
                 : Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
@@ -141,7 +359,7 @@ namespace PostFlow.Services
             {
                 try
                 {
-                    var result = await CallOpenRouterForAnalysisAsync(openRouterKey, request);
+                    var result = await CallOpenRouterForAnalysisAsync(openRouterKey, request, measuredContext);
                     if (result != null)
                     {
                         await LogApiUsageAsync(userId, "OpenRouter", 1, 0.003m);
@@ -154,158 +372,58 @@ namespace PostFlow.Services
                 }
             }
 
-            var geminiKey = !string.IsNullOrWhiteSpace(_aiSettings?.GeminiApiKey)
-                ? _aiSettings.GeminiApiKey
-                : Environment.GetEnvironmentVariable("GEMINI_API_KEY");
-
-            if (!string.IsNullOrWhiteSpace(geminiKey))
+            try
             {
-                try
+                var promptText = BuildTrendAnalysisPrompt(request, measuredContext);
+                var options = new GeminiRequestOptions(
+                    SystemInstruction: "Bạn là chuyên gia phân tích kịch bản video viral và giải mã cấu trúc giữ chân người xem. Luôn trả về đúng schema JSON thuần túy.",
+                    Temperature: 0.7);
+
+                var geminiResult = await _geminiClient.GenerateAsync(promptText, options);
+                var cleanJson = ExtractJsonObject(geminiResult.Text);
+                var parsed = JsonSerializer.Deserialize<TrendAnalysisResponse>(cleanJson, JsonOptions);
+
+                if (parsed != null)
                 {
-                    var result = await CallGeminiForAnalysisAsync(geminiKey, request);
-                    if (result != null)
-                    {
-                        await LogApiUsageAsync(userId, "Gemini", 1, 0.005m);
-                        return result;
-                    }
+                    parsed.Topic = request.Topic;
+                    parsed.Platform = request.Platform;
+                    parsed.ModelUsed = geminiResult.Model;
+                    parsed.ProviderUsed = "Google Gemini";
+                    await LogApiUsageAsync(userId, "Gemini", 1, 0.005m);
+                    return parsed;
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Gemini Trend Analysis lỗi: {Msg}", ex.Message);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Gemini Trend Analysis lỗi: {Msg}", ex.Message);
             }
 
             throw new BadRequestException("Không thể phân tích video xu hướng lúc này do dịch vụ AI tạm thời gián đoạn. Vui lòng thử lại sau.");
         }
 
-        /// <summary>
-        /// Thu thập video thịnh hành thật trực tiếp từ YouTube Data API v3
-        /// </summary>
-        private async Task<List<TrendTopicDto>?> FetchRealTrendingFromYouTubeApiAsync(string apiKey, string? category)
+        /// <summary>Số liệu đo được của video (nếu có) để đưa vào prompt, tránh để AI tự suy diễn con số.</summary>
+        private async Task<string?> BuildMeasuredContextAsync(string? trendVideoId)
         {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(30);
+            if (string.IsNullOrWhiteSpace(trendVideoId)) return null;
 
-            var categoryIdParam = string.Empty;
-            if (!string.IsNullOrWhiteSpace(category) && category != "all")
-            {
-                var categoryId = category.ToLowerInvariant() switch
-                {
-                    "tech" => "28", // Science & Technology
-                    "entertainment" => "24", // Entertainment
-                    "education" => "27", // Education
-                    "lifestyle" => "22", // People & Blogs
-                    "business" => "25", // News & Politics
-                    _ => string.Empty
-                };
+            var video = await _context.TrendVideos.AsNoTracking()
+                .Include(v => v.Channel)
+                .FirstOrDefaultAsync(v => v.Id == trendVideoId);
+            if (video == null) return null;
 
-                if (!string.IsNullOrEmpty(categoryId))
-                {
-                    categoryIdParam = $"&videoCategoryId={categoryId}";
-                }
-            }
+            var age = TrendMetrics.AgeHours(video.PublishedAt, video.LastSnapshotAt ?? video.FirstSeenAt);
+            var lines = new List<string> { $"Nguồn số liệu: {video.DataSource}, đo lúc {video.LastSnapshotAt:yyyy-MM-dd HH:mm} UTC." };
+            if (video.LatestViews.HasValue) lines.Add($"Lượt xem: {video.LatestViews:N0}");
+            if (video.LatestLikes.HasValue) lines.Add($"Lượt thích: {video.LatestLikes:N0}");
+            if (video.LatestComments.HasValue) lines.Add($"Bình luận: {video.LatestComments:N0}");
+            if (video.Channel?.SubscriberCount is { } subs) lines.Add($"Subscriber của kênh: {subs:N0}");
+            if (age.HasValue) lines.Add($"Tuổi video lúc đo: {age.Value:0} giờ");
+            if (video.DurationSeconds.HasValue) lines.Add($"Thời lượng: {video.DurationSeconds} giây");
 
-            var url = $"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&chart=mostPopular&regionCode=VN&maxResults=8{categoryIdParam}&key={apiKey}";
-
-            using var response = await client.GetAsync(url);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseJson);
-
-            if (!doc.RootElement.TryGetProperty("items", out var items) || items.GetArrayLength() == 0) return null;
-
-            var results = new List<TrendTopicDto>();
-
-            foreach (var item in items.EnumerateArray())
-            {
-                var videoId = item.GetProperty("id").GetString() ?? string.Empty;
-                if (string.IsNullOrEmpty(videoId)) continue;
-
-                var snippet = item.GetProperty("snippet");
-                var title = snippet.GetProperty("title").GetString() ?? "Video thịnh hành";
-                var channelTitle = snippet.GetProperty("channelTitle").GetString() ?? string.Empty;
-                var description = snippet.GetProperty("description").GetString() ?? string.Empty;
-
-                var thumbnailUrl = string.Empty;
-                if (snippet.TryGetProperty("thumbnails", out var thumbs))
-                {
-                    if (thumbs.TryGetProperty("high", out var highThumb))
-                    {
-                        thumbnailUrl = highThumb.GetProperty("url").GetString() ?? string.Empty;
-                    }
-                    else if (thumbs.TryGetProperty("default", out var defThumb))
-                    {
-                        thumbnailUrl = defThumb.GetProperty("url").GetString() ?? string.Empty;
-                    }
-                }
-
-                var tagsList = new List<string>();
-                if (snippet.TryGetProperty("tags", out var tagsElem))
-                {
-                    foreach (var tag in tagsElem.EnumerateArray().Take(4))
-                    {
-                        var t = tag.GetString();
-                        if (!string.IsNullOrWhiteSpace(t)) tagsList.Add($"#{t.Replace(" ", "")}");
-                    }
-                }
-                var publishedAt = DateTime.MinValue;
-                if (snippet.TryGetProperty("publishedAt", out var publishedAtElement))
-                {
-                    DateTime.TryParse(publishedAtElement.GetString(), out publishedAt);
-                }
-
-                // Statistics
-                var viewsCount = string.Empty;
-                var likesCount = string.Empty;
-                if (item.TryGetProperty("statistics", out var stats))
-                {
-                    if (stats.TryGetProperty("viewCount", out var vCount) && long.TryParse(vCount.GetString(), out var views))
-                    {
-                        viewsCount = views >= 1_000_000 ? $"{(views / 1_000_000.0):0.#}M views" : $"{(views / 1_000.0):0.#}K views";
-                    }
-                    if (stats.TryGetProperty("likeCount", out var lCount) && long.TryParse(lCount.GetString(), out var likes))
-                    {
-                        likesCount = likes >= 1_000_000 ? $"{(likes / 1_000_000.0):0.#}M likes" : $"{(likes / 1_000.0):0.#}K likes";
-                    }
-                }
-
-                // Duration
-                var duration = string.Empty;
-                if (item.TryGetProperty("contentDetails", out var contentDetails) && contentDetails.TryGetProperty("duration", out var durElem))
-                {
-                    var durStr = durElem.GetString() ?? string.Empty;
-                    duration = FormatIsoDuration(durStr);
-                }
-
-                results.Add(new TrendTopicDto
-                {
-                    Id = $"yt-{videoId}",
-                    Title = title,
-                    Platform = "youtube",
-                    Category = category ?? "tech",
-                    VideoUrl = $"https://www.youtube.com/watch?v={videoId}",
-                    EmbedUrl = $"https://www.youtube.com/embed/{videoId}?autoplay=1",
-                    AuthorName = channelTitle,
-                    AuthorAvatarUrl = string.Empty,
-                    ViewsCount = viewsCount,
-                    LikesCount = likesCount,
-                    Duration = duration,
-                    ViralityScore = 0,
-                    GrowthRate = string.Empty,
-                    SearchVolume = viewsCount.Replace(" views", ""),
-                    Hashtags = tagsList,
-                    Description = description.Length > 150 ? description.Substring(0, 150) + "..." : description,
-                    SampleHook = string.Empty,
-                    ThumbnailUrl = thumbnailUrl,
-                    TrendingSince = publishedAt
-                });
-            }
-
-            return results;
+            return string.Join("\n", lines);
         }
 
-        private async Task<List<TrendTopicDto>?> FetchTrendingFromOpenRouterAsync(string apiKey, string? platform, string? category)
+        private async Task<TrendAnalysisResponse?> CallOpenRouterForAnalysisAsync(string apiKey, AnalyzeTrendRequest request, string? measuredContext)
         {
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(60);
@@ -314,189 +432,7 @@ namespace PostFlow.Services
                 ? _aiSettings.OpenRouter.BaseUrl
                 : "https://openrouter.ai/api/v1/chat/completions";
 
-            var promptText = BuildTrendingFeedPrompt(platform, category);
-
-            var requestBody = new
-            {
-                model = "openrouter/free",
-                messages = new object[]
-                {
-                    new { role = "system", content = "Bạn là AI Research Engine chuyên quét các video xu hướng (Viral Trends) thực tế trên mạng xã hội TikTok, YouTube Shorts, Reels. Luôn trả về đúng schema JSON Array với các video thực tế và đường link nhúng iframe hợp lệ." },
-                    new { role = "user", content = promptText }
-                },
-                temperature = 0.7
-            };
-
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
-            requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            requestMessage.Headers.Add("HTTP-Referer", "https://postflow.io");
-            requestMessage.Headers.Add("X-Title", "PostFlow Real Trend Discovery");
-            requestMessage.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-
-            using var response = await client.SendAsync(requestMessage);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseJson);
-
-            if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0) return null;
-
-            var contentText = choices[0].GetProperty("message").GetProperty("content").GetString();
-            if (string.IsNullOrWhiteSpace(contentText)) return null;
-
-            var cleanJson = ExtractJsonArray(contentText);
-            var parsed = JsonSerializer.Deserialize<List<TrendTopicDto>>(cleanJson, JsonOptions);
-            return NormalizeTrends(parsed, platform, category);
-        }
-
-        private async Task<List<TrendTopicDto>?> FetchTrendingFromGeminiAsync(string apiKey, string? platform, string? category)
-        {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(60);
-
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
-            var promptText = BuildTrendingFeedPrompt(platform, category);
-
-            var requestBody = new
-            {
-                contents = new[]
-                {
-                    new { parts = new[] { new { text = promptText } } }
-                },
-                generationConfig = new
-                {
-                    response_mime_type = "application/json",
-                    temperature = 0.7
-                }
-            };
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("x-goog-api-key", apiKey);
-            request.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            using var response = await client.SendAsync(request);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseJson);
-
-            if (!doc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0) return null;
-
-            var candidateText = candidates[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-            if (string.IsNullOrWhiteSpace(candidateText)) return null;
-
-            var cleanJson = ExtractJsonArray(candidateText);
-            var parsed = JsonSerializer.Deserialize<List<TrendTopicDto>>(cleanJson, JsonOptions);
-            return NormalizeTrends(parsed, platform, category);
-        }
-
-        private static string BuildTrendingFeedPrompt(string? platform, string? category)
-        {
-            var platformContext = string.IsNullOrWhiteSpace(platform) || platform.Equals("all", StringComparison.OrdinalIgnoreCase)
-                ? "YouTube Shorts, TikTok, Facebook Reels"
-                : platform;
-
-            var categoryContext = string.IsNullOrWhiteSpace(category) || category.Equals("all", StringComparison.OrdinalIgnoreCase)
-                ? "nhiều lĩnh vực đa dạng (Công nghệ, Kinh doanh, Đời sống, Giải trí, Giáo dục)"
-                : category switch
-                {
-                    "tech" => "Công nghệ & Số hóa",
-                    "business" => "Kinh doanh & Khởi nghiệp",
-                    "lifestyle" => "Đời sống & Năng suất",
-                    "entertainment" => "Giải trí & Phim ảnh",
-                    "education" => "Mẹo hay & Kỹ năng",
-                    _ => category
-                };
-
-            return $@"Hãy đóng vai AI Research Tracker quét các video thịnh hành (Viral Trends) thực tế trên mạng xã hội {platformContext} thuộc lĩnh vực {categoryContext}.
-                Hãy tìm và tạo danh sách 6 video đang thực sự thịnh hành để người dùng xem trực tiếp qua iframe nhúng (embed player).
-
-                YÊU CẦU:
-                - Bắt buộc trả về đúng định dạng JSON Array thuần túy:
-                [
-                {{
-                    ""id"": ""slug-video-ngan"",
-                    ""title"": ""Tiêu đề video thực tế đang viral"",
-                    ""platform"": ""youtube"" (hoặc ""tiktok"", ""reels""),
-                    ""category"": ""tech"" (hoặc ""business"", ""lifestyle"", ""entertainment"", ""education""),
-                    ""videoUrl"": ""https://www.youtube.com/watch?v=VIDEO_ID"" hoặc link TikTok gốc,
-                    ""embedUrl"": ""https://www.youtube.com/embed/VIDEO_ID?autoplay=1"" hoặc link nhúng iframe,
-                    ""authorName"": ""@TenKenhNguoiTao"",
-                    ""authorAvatarUrl"": ""https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop"",
-                    ""viewsCount"": ""2.5M views"",
-                    ""likesCount"": ""150K likes"",
-                    ""duration"": ""0:45"",
-                    ""viralityScore"": 96,
-                    ""growthRate"": ""+220%"",
-                    ""searchVolume"": ""3.2M"",
-                    ""hashtags"": [""#Tag1"", ""#Tag2"", ""#Tag3""],
-                    ""description"": ""Giải thích ngắn gọn 1-2 câu vì sao video này viral"",
-                    ""sampleHook"": ""Câu hook mở đầu 3s đắt giá của video"",
-                    ""thumbnailUrl"": ""https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=720&auto=format&fit=crop""
-                }}
-            ]";
-        }
-
-        private static List<TrendTopicDto>? NormalizeTrends(List<TrendTopicDto>? list, string? defaultPlatform, string? defaultCategory)
-        {
-            if (list == null) return null;
-            var now = DateTime.UtcNow;
-
-            for (int i = 0; i < list.Count; i++)
-            {
-                var item = list[i];
-                if (string.IsNullOrWhiteSpace(item.Id))
-                {
-                    item.Id = $"trend-{Guid.NewGuid().ToString("N").Substring(0, 8)}";
-                }
-
-                if (string.IsNullOrWhiteSpace(item.Platform))
-                {
-                    item.Platform = (!string.IsNullOrWhiteSpace(defaultPlatform) && defaultPlatform != "all")
-                        ? defaultPlatform
-                        : "youtube";
-                }
-
-                if (string.IsNullOrWhiteSpace(item.Category))
-                {
-                    item.Category = (!string.IsNullOrWhiteSpace(defaultCategory) && defaultCategory != "all")
-                        ? defaultCategory
-                        : "tech";
-                }
-
-                if (item.TrendingSince == default)
-                {
-                    item.TrendingSince = now;
-                }
-
-                // Tự động chuẩn hóa embedUrl từ videoUrl nếu thiếu
-                if (string.IsNullOrWhiteSpace(item.EmbedUrl) && !string.IsNullOrWhiteSpace(item.VideoUrl))
-                {
-                    if (item.VideoUrl.Contains("watch?v="))
-                    {
-                        var vId = item.VideoUrl.Split("watch?v=")[1].Split("&")[0];
-                        item.EmbedUrl = $"https://www.youtube.com/embed/{vId}?autoplay=1";
-                    }
-                    else if (item.VideoUrl.Contains("youtu.be/"))
-                    {
-                        var vId = item.VideoUrl.Split("youtu.be/")[1].Split("?")[0];
-                        item.EmbedUrl = $"https://www.youtube.com/embed/{vId}?autoplay=1";
-                    }
-                }
-            }
-
-            return list;
-        }
-
-        private async Task<TrendAnalysisResponse?> CallOpenRouterForAnalysisAsync(string apiKey, AnalyzeTrendRequest request)
-        {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(60);
-
-            var url = !string.IsNullOrWhiteSpace(_aiSettings?.OpenRouter?.BaseUrl)
-                ? _aiSettings.OpenRouter.BaseUrl
-                : "https://openrouter.ai/api/v1/chat/completions";
-
-            var promptText = BuildTrendAnalysisPrompt(request);
+            var promptText = BuildTrendAnalysisPrompt(request, measuredContext);
 
             var requestBody = new
             {
@@ -540,70 +476,28 @@ namespace PostFlow.Services
             return parsed;
         }
 
-        private async Task<TrendAnalysisResponse?> CallGeminiForAnalysisAsync(string apiKey, AnalyzeTrendRequest request)
+        internal static string BuildTrendAnalysisPrompt(AnalyzeTrendRequest request, string? measuredContext)
         {
-            var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(60);
+            var measured = string.IsNullOrWhiteSpace(measuredContext)
+                ? "Không có số liệu đo được. Không được tự đưa ra con số lượt xem/lượt thích."
+                : measuredContext + "\nChỉ dùng đúng các con số trên, không tự thêm số liệu khác.";
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
-            var promptText = BuildTrendAnalysisPrompt(request);
-
-            var requestBody = new
-            {
-                contents = new[]
-                {
-                    new { parts = new[] { new { text = promptText } } }
-                },
-                generationConfig = new
-                {
-                    response_mime_type = "application/json",
-                    temperature = 0.7
-                }
-            };
-
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url);
-            httpRequest.Headers.Add("x-goog-api-key", apiKey);
-            httpRequest.Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
-            using var response = await client.SendAsync(httpRequest);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(responseJson);
-
-            if (!doc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0) return null;
-
-            var candidateText = candidates[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-            if (string.IsNullOrWhiteSpace(candidateText)) return null;
-
-            var cleanJson = ExtractJsonObject(candidateText);
-            var parsed = JsonSerializer.Deserialize<TrendAnalysisResponse>(cleanJson, JsonOptions);
-
-            if (parsed != null)
-            {
-                parsed.Topic = request.Topic;
-                parsed.Platform = request.Platform;
-                parsed.ModelUsed = "gemini-3.5-flash";
-                parsed.ProviderUsed = "Google Gemini";
-            }
-
-            return parsed;
-        }
-
-        private static string BuildTrendAnalysisPrompt(AnalyzeTrendRequest request)
-        {
-            return $@"Phân tích kịch bản và cấu trúc viral của video thịnh hành:
+            return $@"Phân tích kịch bản và cấu trúc của video sau:
                 Tiêu đề video: {request.Topic}
                 Nền tảng: {request.Platform}
                 Danh mục: {request.Category ?? "Chung"}
                 Hashtags: {(request.Hashtags != null ? string.Join(", ", request.Hashtags) : "Không có")}
                 Ngữ cảnh / Mô tả: {request.AdditionalContext ?? "Không có"}
 
-                Hãy giải mã vì sao video này đạt triệu views, tâm lý người xem, cấu trúc kịch bản và đưa ra 3 góc làm lại video tương tự nhưng sáng tạo và cuốn hút hơn.
+                SỐ LIỆU ĐO ĐƯỢC:
+                {measured}
+
+                Hãy giải mã vì sao video này thu hút người xem, tâm lý người xem, cấu trúc kịch bản và đưa ra 3 góc làm lại video tương tự nhưng sáng tạo và cuốn hút hơn.
 
                 BẮT BUỘC TRẢ VỀ JSON THUẦN TÚY:
                 {{
                 ""viralityScore"": 96,
-                ""whyTrendingReason"": ""Giải thích chi tiết 2-3 câu vì sao video này đang bùng nổ views (Hook 3s, nhịp độ dựng, tâm lý tò mò/FOMO)..."",
+                ""whyTrendingReason"": ""Giải thích chi tiết 2-3 câu vì sao video này thu hút (Hook 3s, nhịp độ dựng, tâm lý tò mò/FOMO)..."",
                 ""targetAudience"": ""Mô tả tệp khán giả mục tiêu (độ tuổi, sở thích, hành vi)"",
                 ""emotionalTriggers"": [
                     ""Tò mò & Bất ngờ"",
@@ -633,20 +527,6 @@ namespace PostFlow.Services
             }}";
         }
 
-        private static string FormatIsoDuration(string iso)
-        {
-            if (string.IsNullOrWhiteSpace(iso)) return "0:45";
-            try
-            {
-                var ts = System.Xml.XmlConvert.ToTimeSpan(iso);
-                return $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
-            }
-            catch
-            {
-                return "0:45";
-            }
-        }
-
         private static string ExtractJsonObject(string rawText)
         {
             if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
@@ -658,19 +538,6 @@ namespace PostFlow.Services
                 return text.Substring(first, last - first + 1);
             }
             return text;
-        }
-
-        private static string ExtractJsonArray(string rawText)
-        {
-            if (string.IsNullOrWhiteSpace(rawText)) return "[]";
-            var text = rawText.Trim();
-            var first = text.IndexOf('[');
-            var last = text.LastIndexOf(']');
-            if (first >= 0 && last > first)
-            {
-                return text.Substring(first, last - first + 1);
-            }
-            return "[]";
         }
 
         private async Task LogApiUsageAsync(string userId, string provider, int count, decimal cost)

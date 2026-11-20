@@ -10,8 +10,9 @@ using PostFlow.Exceptions;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
-using PostFlow.Services.Explainer;
+using PostFlow.Services.AI;
 using PostFlow.Services.Interfaces;
+using PostFlow.Services.Script;
 
 namespace PostFlow.Services
 {
@@ -114,7 +115,7 @@ namespace PostFlow.Services
         }
 
         private async Task<Attempt> RequestOnceAsync(
-            ExplainerPrompt prompt, double? temperature, string targetDuration, Action onCall)
+            ScriptPrompt prompt, double? temperature, string targetDuration, Action onCall)
         {
             onCall();
             var result = await _gemini.GenerateAsync(
@@ -135,7 +136,7 @@ namespace PostFlow.Services
             if (script == null) return new Attempt(null, Array.Empty<string>(), result.Model);
 
             Normalize(script);
-            return new Attempt(script, ExplainerOutputValidator.ValidateScript(script, targetDuration), result.Model);
+            return new Attempt(script, ScriptOutputValidator.ValidateScript(script, targetDuration), result.Model);
         }
 
         private static Attempt? PickBest(Attempt first, Attempt second)

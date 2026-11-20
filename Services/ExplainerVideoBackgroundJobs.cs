@@ -138,18 +138,18 @@ namespace PostFlow.Services
             _jobManager.UpdateProgress(jobId, "GeneratingAudio", 35, "Đang sinh giọng đọc tiếng Việt & đồng bộ thời gian từng từ...");
 
             // Làm sạch từng scene riêng để số từ mỗi scene khớp với những gì TTS thực sự đọc.
-            var sceneTexts = scenes.Select(scene => NarrationSanitizer.Clean(scene.Narration)).ToList();
+            var sceneTexts = scenes.Select(scene => NarrationHelper.Clean(scene.Narration)).ToList();
             var fullText = string.Join(" ", sceneTexts.Where(text => text.Length > 0));
             if (string.IsNullOrWhiteSpace(fullText))
             {
-                fullText = NarrationSanitizer.Clean(request.Topic);
+                fullText = NarrationHelper.Clean(request.Topic);
             }
-            fullText = NarrationSanitizer.EnsureTerminalPunctuation(fullText);
+            fullText = NarrationHelper.EnsureTerminalPunctuation(fullText);
 
             var audio = await _ttsAligner.SynthesizeAsync(
                 fullText, new VoiceOptions(request.Voice, request.Rate, request.Pitch), workDirectory);
 
-            return new SceneNarration(audio, sceneTexts.Select(NarrationSanitizer.CountWords).ToList());
+            return new SceneNarration(audio, sceneTexts.Select(NarrationHelper.CountWords).ToList());
         }
 
         private SceneTimeline BuildTimeline(string jobId, List<ExplainerSceneDto> scenes, SceneNarration narration)

@@ -4,6 +4,7 @@ using Hangfire;
 using PostFlow.Exceptions;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
+using PostFlow.Services.AI;
 using PostFlow.Services.Explainer;
 using PostFlow.Services.Interfaces;
 

@@ -1,9 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using PostFlow.Models;
 using PostFlow.Models.DTOs.Requests;
+using PostFlow.Services.Explainer;
 
-namespace PostFlow.Services.Explainer
+namespace PostFlow.Services.Script
 {
+    public sealed record ScriptPrompt(string System, string User);
+
     /// <summary>Dựng prompt sinh kịch bản video ngắn (TikTok/Shorts/Reels), tách vai trò khỏi dữ liệu người dùng.</summary>
     public static class ScriptPromptBuilder
     {
@@ -20,15 +26,15 @@ namespace PostFlow.Services.Explainer
         public static int SuggestSceneCount(DurationRange range) =>
             Math.Clamp((int)Math.Round(range.MidSeconds / SecondsPerScene), MinSceneCount, MaxSceneCount);
 
-        public static ExplainerPrompt Build(
+        public static ScriptPrompt Build(
             GenerateScriptRequest request, ContentDNA? dna, string tone, string targetDuration,
             IReadOnlyList<string>? previousIssues = null)
         {
-            var range = NarrationPacing.ParseTarget(targetDuration);
+            var range = NarrationHelper.ParseTarget(targetDuration);
             var sceneCount = SuggestSceneCount(range);
-            var totalWords = NarrationPacing.TargetWords(range);
+            var totalWords = NarrationHelper.TargetWords(range);
 
-            return new ExplainerPrompt(BuildSystem(), BuildUser(request, dna, tone, targetDuration, range, sceneCount, totalWords, previousIssues));
+            return new ScriptPrompt(BuildSystem(), BuildUser(request, dna, tone, targetDuration, range, sceneCount, totalWords, previousIssues));
         }
 
         private static string BuildSystem()

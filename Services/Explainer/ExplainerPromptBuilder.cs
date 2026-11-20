@@ -90,7 +90,7 @@ namespace PostFlow.Services.Explainer
         {
             var profile = CategoryProfile.For(request.Category);
             var plan = PlanScenes(request, profile);
-            var range = NarrationPacing.ParseTarget(request.TargetDuration ?? DefaultStoryboardDuration);
+            var range = NarrationHelper.ParseTarget(request.TargetDuration ?? DefaultStoryboardDuration);
 
             return new ExplainerPrompt(
                 BuildStoryboardSystem(profile),
@@ -219,7 +219,7 @@ namespace PostFlow.Services.Explainer
             IReadOnlyList<string>? previousIssues)
         {
             var dossier = request.ResearchDossier;
-            var totalWords = NarrationPacing.TargetWords(range);
+            var totalWords = NarrationHelper.TargetWords(range);
             var wordsPerScene = Math.Max(10, totalWords / plan.Count);
             var durationLabel = request.TargetDuration ?? DefaultStoryboardDuration;
 

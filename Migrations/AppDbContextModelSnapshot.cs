@@ -421,6 +421,249 @@ namespace PostFlow.Migrations
                     b.ToTable("SystemSettings");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.TrendChannel", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AvatarUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long?>("SubscriberCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<long?>("VideoCount")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Platform", "ExternalId")
+                        .IsUnique();
+
+                    b.ToTable("TrendChannels");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.TrendCollectionRun", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CategorySlug")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("QuotaUnitsUsed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SnapshotsWritten")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("VideosFound")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("VideosNew")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedAt");
+
+                    b.ToTable("TrendCollectionRuns");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.TrendVideo", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CategorySlug")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ChannelExternalId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ChannelTitle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DataSource")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EmbedUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("InControlSample")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("InPopularChart")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("InViralSample")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsShort")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsTracking")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Language")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastSnapshotAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<long?>("LatestComments")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("LatestLikes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("LatestViews")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PlatformCategoryId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("SubmittedByUserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Tags")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TrendChannelId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrendChannelId");
+
+                    b.HasIndex("IsTracking", "PublishedAt");
+
+                    b.HasIndex("Platform", "ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("Platform", "CategorySlug", "PublishedAt");
+
+                    b.ToTable("TrendVideos");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.TrendVideoSnapshot", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("AgeHours")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("CapturedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<long?>("Comments")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("DataSource")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long?>("Likes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("MilestoneHours")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TrendVideoId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long?>("Views")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrendVideoId", "CapturedAt");
+
+                    b.ToTable("TrendVideoSnapshots");
+                });
+
             modelBuilder.Entity("PostFlow.Models.UploadJob", b =>
                 {
                     b.Property<string>("Id")
@@ -717,6 +960,27 @@ namespace PostFlow.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("PostFlow.Models.TrendVideo", b =>
+                {
+                    b.HasOne("PostFlow.Models.TrendChannel", "Channel")
+                        .WithMany("Videos")
+                        .HasForeignKey("TrendChannelId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.TrendVideoSnapshot", b =>
+                {
+                    b.HasOne("PostFlow.Models.TrendVideo", "TrendVideo")
+                        .WithMany("Snapshots")
+                        .HasForeignKey("TrendVideoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TrendVideo");
+                });
+
             modelBuilder.Entity("PostFlow.Models.UploadJob", b =>
                 {
                     b.HasOne("PostFlow.Models.SocialAccount", "SocialAccount")
@@ -788,6 +1052,16 @@ namespace PostFlow.Migrations
             modelBuilder.Entity("PostFlow.Models.SocialAccount", b =>
                 {
                     b.Navigation("UploadJobs");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.TrendChannel", b =>
+                {
+                    b.Navigation("Videos");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.TrendVideo", b =>
+                {
+                    b.Navigation("Snapshots");
                 });
 
             modelBuilder.Entity("PostFlow.Models.UploadJob", b =>

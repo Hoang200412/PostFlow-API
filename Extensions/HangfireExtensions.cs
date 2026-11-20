@@ -1,6 +1,8 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using PostFlow.Services;
+using PostFlow.Services.Interfaces;
+using PostFlow.Services.Trends;
 
 namespace PostFlow.Extensions;
 
@@ -32,6 +34,18 @@ public static class HangfireExtensions
             "gather-analytics-cron",
             j => j.GatherAnalyticsJobAsync(),
             "0 */6 * * *");
+
+        // Thu thập video xu hướng mới mỗi ngày lúc 01:00 UTC (08:00 giờ Việt Nam)
+        recurringJobManager.AddOrUpdate<ITrendCollector>(
+            "trend-discover-cron",
+            c => c.DiscoverAsync(null),
+            "0 1 * * *");
+
+        // Chụp snapshot số liệu cho video đến mốc tuổi 24h/72h/7 ngày, kiểm tra mỗi 3 tiếng
+        recurringJobManager.AddOrUpdate<ITrendCollector>(
+            "trend-snapshot-cron",
+            c => c.SnapshotDueAsync(),
+            "0 */3 * * *");
 
         return app;
     }
