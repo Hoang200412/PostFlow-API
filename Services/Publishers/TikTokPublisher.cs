@@ -71,6 +71,8 @@ namespace PostFlow.Services.Publishers
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogError("TikTok token refresh thất bại: {Body}", body);
+                    SocialAccountTokenHealth.MarkNeedsReconnect(account, $"TikTok refresh token bị từ chối: {body}");
+                    await _context.SaveChangesAsync(cancellationToken);
                     return null;
                 }
 
@@ -85,6 +87,7 @@ namespace PostFlow.Services.Publishers
                 if (!string.IsNullOrEmpty(newRefreshToken))
                     account.RefreshToken = newRefreshToken;
                 account.TokenExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn);
+                SocialAccountTokenHealth.Clear(account);
                 await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation("Đã làm mới TikTok AccessToken thành công cho account {Id}.", account.Id);

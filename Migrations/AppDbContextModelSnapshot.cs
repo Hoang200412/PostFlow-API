@@ -22,6 +22,53 @@ namespace PostFlow.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("PostFlow.Models.AdminAuditLog", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("AdminId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("AdminUsername")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("IpAddress")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("TargetId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetLabel")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdminId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("TargetType", "TargetId");
+
+                    b.ToTable("AdminAuditLogs");
+                });
+
             modelBuilder.Entity("PostFlow.Models.Analytics", b =>
                 {
                     b.Property<string>("Id")
@@ -380,6 +427,12 @@ namespace PostFlow.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("LastTokenError")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("NeedsReconnect")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Platform")
                         .IsRequired()
                         .HasColumnType("text");
@@ -387,6 +440,9 @@ namespace PostFlow.Migrations
                     b.Property<string>("RefreshToken")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("TokenErrorAt")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<DateTime?>("TokenExpiresAt")
                         .HasColumnType("timestamp without time zone");
@@ -747,6 +803,15 @@ namespace PostFlow.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<int?>("DailyAiLimitOverride")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("DeletedBy")
+                        .HasColumnType("text");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("text");
@@ -756,6 +821,12 @@ namespace PostFlow.Migrations
 
                     b.Property<string>("PasswordHash")
                         .HasColumnType("text");
+
+                    b.Property<string>("Plan")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("Trial");
 
                     b.Property<string>("RefreshToken")
                         .HasColumnType("text");
@@ -780,6 +851,28 @@ namespace PostFlow.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.UserDailyAiUsage", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<DateOnly>("UsageDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("BonusCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RequestCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("UserId", "UsageDate");
+
+                    b.ToTable("UserDailyAiUsages");
                 });
 
             modelBuilder.Entity("PostFlow.Models.VideoAsset", b =>
@@ -1006,6 +1099,17 @@ namespace PostFlow.Migrations
                     b.Navigation("User");
 
                     b.Navigation("VideoAsset");
+                });
+
+            modelBuilder.Entity("PostFlow.Models.UserDailyAiUsage", b =>
+                {
+                    b.HasOne("PostFlow.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("PostFlow.Models.VideoAsset", b =>

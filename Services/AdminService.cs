@@ -55,12 +55,12 @@ namespace PostFlow.Services
                 throw new BadRequestException("Username, Email, and Password are required.");
             }
 
-            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == request.Username.ToLower()))
+            if (await _context.Users.IgnoreQueryFilters().AnyAsync(u => u.Username.ToLower() == request.Username.ToLower()))
             {
                 throw new ConflictException("Username already exists.");
             }
 
-            if (await _context.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
+            if (await _context.Users.IgnoreQueryFilters().AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
             {
                 throw new ConflictException("Email already exists.");
             }

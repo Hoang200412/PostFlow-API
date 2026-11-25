@@ -1,11 +1,19 @@
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
+using PostFlow.Data;
 
 namespace PostFlow.Extensions;
 
 public static class AuthenticationExtensions
 {
+    private static readonly TimeSpan UserStatusCacheTtl = TimeSpan.FromSeconds(30);
+
+    private sealed record UserStatus(bool IsActive, bool IsDeleted);
+
     public static IServiceCollection AddCorsPolicy(this IServiceCollection services)
     {
         services.AddCors(options =>
@@ -52,6 +60,37 @@ public static class AuthenticationExtensions
                 ValidAudience = jwtSettings["Audience"],
                 IssuerSigningKey = new SymmetricSecurityKey(key),
                 ClockSkew = TimeSpan.Zero
+            };
+
+            // Access token sống 30 phút nên phải kiểm tra lại trạng thái user: khóa hoặc xóa tài khoản
+            // có hiệu lực sau tối đa UserStatusCacheTtl thay vì chờ token hết hạn.
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = async context =>
+                {
+                    var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                    if (string.IsNullOrEmpty(userId))
+                    {
+                        return;
+                    }
+
+                    var cache = context.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
+                    var status = await cache.GetOrCreateAsync($"user-status:{userId}", async entry =>
+                    {
+                        entry.AbsoluteExpirationRelativeToNow = UserStatusCacheTtl;
+                        var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                        return await db.Users.IgnoreQueryFilters()
+                            .AsNoTracking()
+                            .Where(u => u.Id == userId)
+                            .Select(u => new UserStatus(u.IsActive, u.DeletedAt != null))
+                            .FirstOrDefaultAsync();
+                    });
+
+                    if (status == null || !status.IsActive || status.IsDeleted)
+                    {
+                        context.Fail("Tài khoản đã bị khóa hoặc không còn tồn tại.");
+                    }
+                }
             };
         });
 

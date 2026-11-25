@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PostFlow.Filters;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Services.Interfaces;
 
@@ -23,6 +24,7 @@ namespace PostFlow.Controllers
         /// Bước 1: Khởi chạy tác vụ nghiên cứu chuyên sâu chủ đề ngầm qua Hangfire
         /// </summary>
         [HttpPost("research")]
+        [RequireAiQuota]
         public IActionResult ResearchTopic([FromBody] ExplainerResearchRequest request)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";
@@ -34,6 +36,7 @@ namespace PostFlow.Controllers
         /// Bước 2: Khởi chạy tác vụ sinh kịch bản phân cảnh ngầm qua Hangfire
         /// </summary>
         [HttpPost("storyboard")]
+        [RequireAiQuota]
         public IActionResult GenerateStoryboard([FromBody] ExplainerRenderRequest request)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";

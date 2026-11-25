@@ -12,6 +12,10 @@ namespace PostFlow.Models.DTOs.Responses
         public string ChannelIdOrPageId { get; set; } = string.Empty;
         public DateTime? TokenExpiresAt { get; set; }
         public bool IsActive { get; set; }
+
+        /// <summary>true khi token bị nền tảng từ chối và người dùng cần kết nối lại kênh.</summary>
+        public bool NeedsReconnect { get; set; }
+        public string? LastTokenError { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -28,6 +32,8 @@ namespace PostFlow.Models.DTOs.Responses
                 ChannelIdOrPageId = account.ChannelIdOrPageId,
                 TokenExpiresAt = account.TokenExpiresAt,
                 IsActive = account.IsActive,
+                NeedsReconnect = account.NeedsReconnect,
+                LastTokenError = account.LastTokenError,
                 CreatedAt = account.CreatedAt
             };
         }

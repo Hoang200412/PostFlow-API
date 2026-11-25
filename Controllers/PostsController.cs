@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PostFlow.Filters;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services.Interfaces;
@@ -24,6 +25,7 @@ public class PostsController : ControllerBase
     private string? CurrentUserId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
     [HttpPost("generate")]
+    [RequireAiQuota]
     public async Task<ActionResult<PostDto>> Generate([FromBody] GeneratePostRequest request)
     {
         if (string.IsNullOrEmpty(CurrentUserId)) return Unauthorized();

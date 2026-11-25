@@ -13,10 +13,12 @@ namespace PostFlow.Controllers
     public class AdminController : ControllerBase
     {
         private readonly IAdminService _adminService;
+        private readonly IAuditLogService _auditLog;
 
-        public AdminController(IAdminService adminService)
+        public AdminController(IAdminService adminService, IAuditLogService auditLog)
         {
             _adminService = adminService;
+            _auditLog = auditLog;
         }
 
         /// <summary>
@@ -36,6 +38,8 @@ namespace PostFlow.Controllers
         public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
         {
             var result = await _adminService.CreateUserAsync(request);
+            await _auditLog.LogAsync("USER_CREATE", "User", null, request.Username,
+                new { after = new { request.Username, request.Email, role = request.Role ?? "User" } });
             return Created("/api/admin/users", result);
         }
 
@@ -56,6 +60,7 @@ namespace PostFlow.Controllers
         public async Task<IActionResult> UpdateSetting(string key, [FromBody] UpdateSettingRequest request)
         {
             var setting = await _adminService.UpdateSettingAsync(key, request);
+            await _auditLog.LogAsync("SETTING_UPDATE", "Setting", key, key, new { after = new { value = request.Value } });
             return Ok(setting);
         }
 
@@ -76,6 +81,8 @@ namespace PostFlow.Controllers
         public async Task<IActionResult> CleanupStuckJobs([FromQuery] CleanupStuckJobsRequest request)
         {
             var result = await _adminService.CleanupStuckJobsAsync(request);
+            await _auditLog.LogAsync("JOB_CLEANUP_STUCK", "UploadJob", null, "Dọn job bị kẹt",
+                new { stuckMinutes = request?.StuckMinutes ?? 15, result });
             return Ok(result);
         }
 
@@ -86,6 +93,7 @@ namespace PostFlow.Controllers
         public async Task<IActionResult> RetryJob(string id)
         {
             var success = await _adminService.RetryJobAsync(id);
+            await _auditLog.LogAsync("JOB_RETRY", "UploadJob", id, id);
             return Ok(new { success, message = "Đã lên lịch chạy lại Job thành công." });
         }
 
@@ -96,6 +104,7 @@ namespace PostFlow.Controllers
         public async Task<IActionResult> DeleteJob(string id)
         {
             var success = await _adminService.DeleteJobAsync(id);
+            await _auditLog.LogAsync("JOB_DELETE", "UploadJob", id, id);
             return Ok(new { success, message = "Đã xóa Job thành công." });
         }
     }

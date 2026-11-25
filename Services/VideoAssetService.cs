@@ -205,16 +205,6 @@ namespace PostFlow.Services
                 }
             }
 
-            var today = DateTime.UtcNow.Date;
-            var currentQuota = await _context.ApiUsageLogs
-                .Where(l => l.UserId == userId && l.Date == today)
-                .SumAsync(l => l.CallCount);
-
-            if (currentQuota >= 100)
-            {
-                throw new ForbiddenException("Hạn mức cuộc gọi API (Quota) trong ngày đã vượt ngưỡng.");
-            }
-
             var video = new VideoAsset
             {
                 UserId = userId,

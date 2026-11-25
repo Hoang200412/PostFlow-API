@@ -19,6 +19,12 @@ namespace PostFlow.Models
         public string RefreshToken { get; set; } = string.Empty;
         public DateTime? TokenExpiresAt { get; set; }
         public bool IsActive { get; set; } = true;
+
+        /// <summary>true khi làm mới token thất bại (bị thu hồi/hết hạn) và người dùng phải kết nối lại kênh.</summary>
+        public bool NeedsReconnect { get; set; }
+        public string? LastTokenError { get; set; }
+        public DateTime? TokenErrorAt { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Navigation Properties cho Entity Framework Core

@@ -46,6 +46,7 @@ namespace PostFlow.Services
         private readonly IVoiceoverJobManager _voiceoverJobManager;
         private readonly IDubVideoJobManager _dubVideoJobManager;
         private readonly INotificationService _notificationService;
+        private readonly IAiQuotaService _aiQuotaService;
         private readonly ILogger<BackgroundJobs> _logger;
 
         public BackgroundJobs(
@@ -57,6 +58,7 @@ namespace PostFlow.Services
             IVoiceoverJobManager voiceoverJobManager,
             IDubVideoJobManager dubVideoJobManager,
             INotificationService notificationService,
+            IAiQuotaService aiQuotaService,
             ILogger<BackgroundJobs> logger)
         {
             _context = context;
@@ -67,6 +69,7 @@ namespace PostFlow.Services
             _voiceoverJobManager = voiceoverJobManager;
             _dubVideoJobManager = dubVideoJobManager;
             _notificationService = notificationService;
+            _aiQuotaService = aiQuotaService;
             _logger = logger;
         }
 
@@ -190,6 +193,7 @@ namespace PostFlow.Services
                 {
                     _logger.LogError("Không thể giải mã dữ liệu GenerateScriptRequest cho JobId: {JobId}", jobId);
                     _scriptJobManager.SetFailed(jobId, "Dữ liệu yêu cầu kịch bản không hợp lệ.");
+                    await _aiQuotaService.RefundAsync(userId);
                     return;
                 }
 
@@ -261,6 +265,9 @@ namespace PostFlow.Services
             {
                 _logger.LogError(ex, "Lỗi trong tiến trình GenerateScriptJobAsync cho JobId: {JobId}", jobId);
                 _scriptJobManager.SetFailed(jobId, ex.Message);
+
+                // Lần gọi AI thất bại thì hoàn lại lượt đã trừ lúc nhận yêu cầu
+                await _aiQuotaService.RefundAsync(userId);
 
                 try
                 {

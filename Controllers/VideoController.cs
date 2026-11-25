@@ -7,6 +7,7 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PostFlow.Filters;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Models.DTOs.Responses;
 using PostFlow.Services;
@@ -254,6 +255,7 @@ namespace PostFlow.Controllers
         /// API Sinh kịch bản video AI theo chủ đề và Content DNA (Structured JSON) đưa vào Background Job
         /// </summary>
         [HttpPost("generate-script")]
+        [RequireAiQuota]
         public IActionResult GenerateScript([FromBody] GenerateScriptRequest request)
         {
             var userId = GetCurrentUserId();

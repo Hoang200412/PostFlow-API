@@ -86,6 +86,10 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IContentDnaService, ContentDnaService>();
         services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IAiQuotaService, PostFlow.Services.Quota.AiQuotaService>();
+        services.AddHttpContextAccessor();
+        services.AddScoped<IAuditLogService, AuditLogService>();
+        services.AddScoped<IChannelTokenHealthJob, ChannelTokenHealthJob>();
         services.AddScoped<ITrendService, TrendService>();
         services.AddScoped<IPostService, PostService>();
         services.AddScoped<IImageGenerationService, ImageGenerationService>();

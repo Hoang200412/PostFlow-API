@@ -47,6 +47,12 @@ public static class HangfireExtensions
             c => c.SnapshotDueAsync(),
             "0 */3 * * *");
 
+        // Quét token kênh sắp hết hạn / cần kết nối lại mỗi ngày lúc 02:00 UTC (09:00 giờ Việt Nam)
+        recurringJobManager.AddOrUpdate<IChannelTokenHealthJob>(
+            "channel-token-health-cron",
+            j => j.NotifyUnhealthyChannelsAsync(),
+            "0 2 * * *");
+
         return app;
     }
 }

@@ -29,6 +29,7 @@ namespace PostFlow.Services
         private readonly IExplainerVideoService _explainerService;
         private readonly IEdgeTtsAligner _ttsAligner;
         private readonly IRemotionRenderer _renderer;
+        private readonly IAiQuotaService _aiQuotaService;
         private readonly ILogger<ExplainerVideoBackgroundJobs> _logger;
 
         public ExplainerVideoBackgroundJobs(
@@ -38,6 +39,7 @@ namespace PostFlow.Services
             IExplainerVideoService explainerService,
             IEdgeTtsAligner ttsAligner,
             IRemotionRenderer renderer,
+            IAiQuotaService aiQuotaService,
             ILogger<ExplainerVideoBackgroundJobs> logger)
         {
             _context = context;
@@ -46,6 +48,7 @@ namespace PostFlow.Services
             _explainerService = explainerService;
             _ttsAligner = ttsAligner;
             _renderer = renderer;
+            _aiQuotaService = aiQuotaService;
             _logger = logger;
         }
 
@@ -258,6 +261,7 @@ namespace PostFlow.Services
                 if (request == null)
                 {
                     _jobManager.Failed(jobId, invalidRequestMessage);
+                    await _aiQuotaService.RefundAsync(userId);
                     return;
                 }
 
@@ -268,6 +272,9 @@ namespace PostFlow.Services
             {
                 _logger.LogError(ex, "Lỗi trong tác vụ nền {JobName}. JobId: {JobId}", jobName, jobId);
                 _jobManager.Failed(jobId, ex.Message);
+
+                // Lần gọi AI thất bại thì hoàn lại lượt đã trừ lúc nhận yêu cầu
+                await _aiQuotaService.RefundAsync(userId);
             }
         }
 

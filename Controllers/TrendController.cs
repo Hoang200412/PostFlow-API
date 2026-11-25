@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PostFlow.Filters;
 using PostFlow.Models.DTOs.Requests;
 using PostFlow.Services.Interfaces;
 
@@ -36,6 +37,7 @@ namespace PostFlow.Controllers
         /// API Phân tích chuyên sâu xu hướng bằng AI (Tại sao nó trend, tâm lý người xem, 3 góc kịch bản)
         /// </summary>
         [HttpPost("analyze")]
+        [RequireAiQuota]
         public async Task<IActionResult> AnalyzeTrend([FromBody] AnalyzeTrendRequest request)
         {
             var userId = GetCurrentUserId();

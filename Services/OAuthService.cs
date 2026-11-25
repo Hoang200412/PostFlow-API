@@ -591,6 +591,7 @@ namespace PostFlow.Services
                 existing.TokenExpiresAt = tokenExpiresAt;
                 existing.AccountName = accountName;
                 existing.IsActive = true;
+                SocialAccountTokenHealth.Clear(existing);
                 await _context.SaveChangesAsync();
                 return existing.ToDto();
             }

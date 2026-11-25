@@ -324,6 +324,8 @@ namespace PostFlow.Services
                         job.ProgressPercentage = 100;
                         job.CompletedAt = DateTime.UtcNow;
                         job.ErrorMessage = null;
+                        // Đăng được bài nghĩa là token vẫn dùng tốt: gỡ cảnh báo kết nối lại (nếu có)
+                        if (job.SocialAccount.NeedsReconnect) SocialAccountTokenHealth.Clear(job.SocialAccount);
                         await _context.SaveChangesAsync(CancellationToken.None);
                         _logger.LogInformation("Job {JobId} xuất bản thành công! URL: {Url}", jobId, result.VideoUrl);
                     }
@@ -350,6 +352,12 @@ namespace PostFlow.Services
                 }
 
                 _logger.LogError(ex, "Lỗi xảy ra trong tiến trình xuất bản Job {JobId}", jobId);
+
+                // Nền tảng từ chối token (bị thu hồi/hết hạn): đánh dấu để admin và người dùng biết cần kết nối lại
+                if (job.SocialAccount != null && SocialAccountTokenHealth.IsAuthError(ex))
+                {
+                    SocialAccountTokenHealth.MarkNeedsReconnect(job.SocialAccount, ex.Message);
+                }
 
                 // Lỗi do cấu hình hoặc client (thiếu token, file không tồn tại, sai quyền) không thể tự hết khi retry
                 bool isNonRetryable = ex is BadRequestException || ex is NotFoundException || ex is UnauthorizedException;

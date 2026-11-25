@@ -36,13 +36,13 @@ namespace PostFlow.Services
         public async Task<AuthResponseDto?> RegisterAsync(RegisterRequest request)
         {
             // Kiểm tra username đã tồn tại chưa
-            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == request.Username.ToLower()))
+            if (await _context.Users.IgnoreQueryFilters().AnyAsync(u => u.Username.ToLower() == request.Username.ToLower()))
             {
                 throw new ArgumentException("Tên đăng nhập đã tồn tại.");
             }
 
             // Kiểm tra email đã tồn tại chưa
-            if (await _context.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
+            if (await _context.Users.IgnoreQueryFilters().AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
             {
                 throw new ArgumentException("Email đã đăng ký tài khoản khác.");
             }
@@ -157,8 +157,14 @@ namespace PostFlow.Services
             var user = externalAccount?.User;
             if (user == null && !string.IsNullOrWhiteSpace(identity.Email))
             {
-                user = await _context.Users.FirstOrDefaultAsync(candidate =>
+                // IgnoreQueryFilters để nhận ra tài khoản đã bị xóa mềm (tránh tạo trùng email và vi phạm unique index)
+                user = await _context.Users.IgnoreQueryFilters().FirstOrDefaultAsync(candidate =>
                     candidate.Email.ToLower() == identity.Email.ToLower());
+            }
+
+            if (user?.DeletedAt != null)
+            {
+                throw new ArgumentException("Tài khoản này đã bị xóa.");
             }
 
             if (user == null)
@@ -223,6 +229,7 @@ namespace PostFlow.Services
             externalAccount.RefreshToken = identity.RefreshToken;
             externalAccount.TokenExpiresAt = identity.TokenExpiresAt;
             externalAccount.IsActive = true;
+            SocialAccountTokenHealth.Clear(externalAccount);
 
             await CleanupExpiredTokensAsync(user.Id);
             var refreshToken = GenerateRefreshToken();
@@ -257,7 +264,7 @@ namespace PostFlow.Services
             var username = baseUsername;
             var suffix = 1;
 
-            while (await _context.Users.AnyAsync(user => user.Username.ToLower() == username.ToLower()))
+            while (await _context.Users.IgnoreQueryFilters().AnyAsync(user => user.Username.ToLower() == username.ToLower()))
             {
                 username = $"{baseUsername}_{suffix++}";
             }
@@ -277,11 +284,19 @@ namespace PostFlow.Services
                 throw new UnauthorizedException("Refresh Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.");
             }
 
-            // 2. Tìm User từ UserId gắn với Refresh Token
-            var user = await _context.Users.FindAsync(existingToken.UserId);
+            // 2. Tìm User từ UserId gắn với Refresh Token (user đã xóa mềm bị query filter loại bỏ)
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == existingToken.UserId);
             if (user == null)
             {
                 throw new NotFoundException("Không tìm thấy thông tin người dùng.");
+            }
+
+            // Tài khoản bị khóa không được làm mới phiên: thu hồi luôn refresh token
+            if (!user.IsActive)
+            {
+                _context.RefreshTokens.RemoveRange(_context.RefreshTokens.Where(t => t.UserId == user.Id));
+                await _context.SaveChangesAsync();
+                throw new UnauthorizedException("Tài khoản này đang bị khóa.");
             }
 
             // 3. Sinh Access Token mới và xoay vòng Refresh Token (Token Rotation)

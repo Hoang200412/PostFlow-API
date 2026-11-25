@@ -28,6 +28,8 @@ namespace PostFlow.Data
         public DbSet<TrendVideo> TrendVideos { get; set; } = null!;
         public DbSet<TrendVideoSnapshot> TrendVideoSnapshots { get; set; } = null!;
         public DbSet<TrendCollectionRun> TrendCollectionRuns { get; set; } = null!;
+        public DbSet<AdminAuditLog> AdminAuditLogs { get; set; } = null!;
+        public DbSet<UserDailyAiUsage> UserDailyAiUsages { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -39,6 +41,29 @@ namespace PostFlow.Data
                 entity.HasKey(e => e.Id);
                 entity.HasIndex(e => e.Username).IsUnique();
                 entity.HasIndex(e => e.Email).IsUnique();
+                entity.Property(e => e.Plan).HasDefaultValue(UserPlans.Trial);
+
+                // Xóa mềm: user đã xóa bị ẩn khỏi mọi truy vấn thông thường (dùng IgnoreQueryFilters để xem lại)
+                entity.HasQueryFilter(e => e.DeletedAt == null);
+            });
+
+            modelBuilder.Entity<AdminAuditLog>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Metadata).HasColumnType("jsonb");
+                entity.HasIndex(e => e.CreatedAt);
+                entity.HasIndex(e => new { e.TargetType, e.TargetId });
+                entity.HasIndex(e => e.AdminId);
+            });
+
+            modelBuilder.Entity<UserDailyAiUsage>(entity =>
+            {
+                entity.HasKey(e => new { e.UserId, e.UsageDate });
+                entity.Property(e => e.UsageDate).HasColumnType("date");
+                entity.HasOne(e => e.User)
+                    .WithMany()
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             // 2. Cấu hình bảng SocialAccount
