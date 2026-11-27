@@ -107,5 +107,52 @@ namespace PostFlow.Controllers
             await _auditLog.LogAsync("JOB_DELETE", "UploadJob", id, id);
             return Ok(new { success, message = "Đã xóa Job thành công." });
         }
+
+        [HttpGet("voices")]
+        public async Task<IActionResult> GetVoices()
+        {
+            var voices = await _adminService.GetVoicesAsync();
+            return Ok(voices);
+        }
+
+        [HttpPost("voices")]
+        public async Task<IActionResult> CreateVoice([FromBody] UpsertTtsVoiceRequest request)
+        {
+            var voice = await _adminService.CreateVoiceAsync(request);
+            await _auditLog.LogAsync("VOICE_CREATE", "TtsVoice", voice.Id, voice.Name,
+                new { after = new { voice.VoiceId, voice.Name, voice.Gender, voice.IsActive, voice.IsDefault } });
+            return Created($"/api/admin/voices/{voice.Id}", voice);
+        }
+
+        [HttpPut("voices/{id}")]
+        public async Task<IActionResult> UpdateVoice(string id, [FromBody] UpsertTtsVoiceRequest request)
+        {
+            var voice = await _adminService.UpdateVoiceAsync(id, request);
+            await _auditLog.LogAsync("VOICE_UPDATE", "TtsVoice", voice.Id, voice.Name,
+                new { after = new { voice.VoiceId, voice.Name, voice.Gender, voice.IsActive, voice.IsDefault } });
+            return Ok(voice);
+        }
+
+        [HttpDelete("voices/{id}")]
+        public async Task<IActionResult> DeleteVoice(string id)
+        {
+            var success = await _adminService.DeleteVoiceAsync(id);
+            await _auditLog.LogAsync("VOICE_DELETE", "TtsVoice", id, id);
+            return Ok(new { success, message = "Đã xóa giọng đọc thành công." });
+        }
+
+        [HttpPost("voices/{id}/generate-sample")]
+        public async Task<IActionResult> GenerateVoiceSample(string id)
+        {
+            var voice = await _adminService.GenerateVoiceSampleAsync(id);
+            return Ok(voice);
+        }
+
+        [HttpPost("voices/generate-samples")]
+        public async Task<IActionResult> GenerateMissingVoiceSamples()
+        {
+            var count = await _adminService.GenerateMissingVoiceSamplesAsync();
+            return Ok(new { generatedCount = count });
+        }
     }
 }

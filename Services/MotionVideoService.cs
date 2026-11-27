@@ -19,8 +19,9 @@ public class MotionVideoService : IMotionVideoService
     private readonly IStorageService _storage;
     private readonly StockVideoSettings _settings;
     private readonly IMediaLibraryService _mediaLibrary;
+    private readonly ITtsService _ttsService;
 
-    public MotionVideoService(IStockVideoProvider provider, MotionVideoJobManager jobManager, Hangfire.IBackgroundJobClient backgroundJobClient, IStorageService storage, IOptions<StockVideoSettings> settings, IMediaLibraryService mediaLibrary)
+    public MotionVideoService(IStockVideoProvider provider, MotionVideoJobManager jobManager, Hangfire.IBackgroundJobClient backgroundJobClient, IStorageService storage, IOptions<StockVideoSettings> settings, IMediaLibraryService mediaLibrary, ITtsService ttsService)
     {
         _provider = provider;
         _jobManager = jobManager;
@@ -28,6 +29,7 @@ public class MotionVideoService : IMotionVideoService
         _storage = storage;
         _settings = settings.Value;
         _mediaLibrary = mediaLibrary;
+        _ttsService = ttsService;
     }
 
     public async Task<StockVideoSearchResponse> SearchStockVideosAsync(SearchStockVideoRequest request, CancellationToken cancellationToken = default)
@@ -57,14 +59,10 @@ public class MotionVideoService : IMotionVideoService
 
     public MotionVideoJobStatusDto? GetJob(string jobId, string userId) => _jobManager.Get(jobId, userId);
 
-    private static void ValidateRequest(RenderMotionVideoRequest request)
+    private void ValidateRequest(RenderMotionVideoRequest request)
     {
-        var allowedVoices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "vi-VN-NamMinhNeural", "vi-VN-HoaiMyNeural", "en-US-JennyNeural",
-            "en-US-GuyNeural", "en-US-AriaNeural", "en-US-ChristopherNeural"
-        };
-        if (!string.IsNullOrWhiteSpace(request.Voice) && !allowedVoices.Contains(request.Voice))
+        if (!string.IsNullOrWhiteSpace(request.Voice) &&
+            !_ttsService.IsSupportedVoiceAsync(request.Voice).GetAwaiter().GetResult())
             throw new BadRequestException("Giọng đọc không được hỗ trợ.");
         if (!Regex.IsMatch(request.Rate ?? "+0%", @"^[+-]?\d{1,3}%$"))
             throw new BadRequestException("Tốc độ đọc không hợp lệ.");

@@ -28,7 +28,7 @@ namespace PostFlow.Models.DTOs.Requests
 
         public string? TargetDuration { get; set; } = "30-45 giây";
 
-        public string Voice { get; set; } = "vi-VN-NamMinhNeural";
+        public string Voice { get; set; } = "diem_trinh";
 
         public string AspectRatio { get; set; } = "16:9"; // "16:9" or "9:16"
 

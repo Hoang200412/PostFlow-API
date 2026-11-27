@@ -3,15 +3,10 @@
 # This stage is used when running from VS in fast mode (Default for Debug configuration)
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
 USER root
-# Cài đặt FFmpeg và Python3 + Edge-TTS cho môi trường Linux container (Railway / Cloud)
+# Cài đặt FFmpeg cho môi trường Linux container (Railway / Cloud)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    python3 \
-    python3-pip \
-    python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install --no-cache-dir --break-system-packages edge-tts
 
 USER $APP_UID
 WORKDIR /app

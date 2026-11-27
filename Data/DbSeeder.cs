@@ -124,7 +124,7 @@ namespace PostFlow.Data
                     Id = "dna_hoang_01",
                     UserId = hoangUser.Id,
                     BrandName = "Hoang Tech AI",
-                    VoiceProfile = "vi-VN-NamMinhNeural",
+                    VoiceProfile = "diem_trinh",
                     AvatarAssetPath = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80",
                     ScriptStructure = "{\"hook\":\"Bạn có biết...\",\"body\":\"Chi tiết công nghệ mới...\",\"cta\":\"Follow Hoàng để cập nhật!\"}",
                     CreatedAt = DateTime.UtcNow.AddDays(-15)
@@ -400,6 +400,111 @@ namespace PostFlow.Data
                     context.Analytics.AddRange(analyticsList);
                     context.SaveChanges();
                 }
+            }
+
+            // 9. Seed 6 giọng đọc TTS phổ biến (3 nữ, 3 nam) nếu chưa có
+            if (!context.TtsVoices.Any())
+            {
+                var now = DateTime.UtcNow;
+                context.TtsVoices.AddRange(
+                    new TtsVoice
+                    {
+                        Id = "voice_diem_trinh",
+                        VoiceId = "diem_trinh",
+                        Name = "Diễm Trinh",
+                        Gender = "female",
+                        Language = "Tiếng Việt",
+                        Accent = "Tự nhiên, mặc định",
+                        Provider = "Kokoro TTS",
+                        SampleText = "Xin chào, tôi là Diễm Trinh.",
+                        IsActive = true,
+                        IsDefault = true,
+                        SortOrder = 1,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new TtsVoice
+                    {
+                        Id = "voice_mai_linh",
+                        VoiceId = "mai_linh",
+                        Name = "Mai Linh",
+                        Gender = "female",
+                        Language = "Tiếng Việt",
+                        Accent = "Trẻ trung, rõ ràng",
+                        Provider = "Kokoro TTS",
+                        SampleText = "Xin chào, tôi là Mai Linh.",
+                        IsActive = true,
+                        IsDefault = false,
+                        SortOrder = 2,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new TtsVoice
+                    {
+                        Id = "voice_ngoc_huyen",
+                        VoiceId = "ngoc_huyen",
+                        Name = "Ngọc Huyền",
+                        Gender = "female",
+                        Language = "Tiếng Việt",
+                        Accent = "Truyền cảm, nhẹ nhàng",
+                        Provider = "Kokoro TTS",
+                        SampleText = "Xin chào, tôi là Ngọc Huyền.",
+                        IsActive = true,
+                        IsDefault = false,
+                        SortOrder = 3,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new TtsVoice
+                    {
+                        Id = "voice_hung_thinh",
+                        VoiceId = "hung_thinh",
+                        Name = "Hùng Thịnh",
+                        Gender = "male",
+                        Language = "Tiếng Việt",
+                        Accent = "Trầm ấm, chững chạc",
+                        Provider = "Kokoro TTS",
+                        SampleText = "Xin chào, tôi là Hùng Thịnh.",
+                        IsActive = true,
+                        IsDefault = false,
+                        SortOrder = 4,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new TtsVoice
+                    {
+                        Id = "voice_manh_dung",
+                        VoiceId = "manh_dung",
+                        Name = "Mạnh Dũng",
+                        Gender = "male",
+                        Language = "Tiếng Việt",
+                        Accent = "Dứt khoát, năng lượng",
+                        Provider = "Kokoro TTS",
+                        SampleText = "Xin chào, tôi là Mạnh Dũng.",
+                        IsActive = true,
+                        IsDefault = false,
+                        SortOrder = 5,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    },
+                    new TtsVoice
+                    {
+                        Id = "voice_tuan_ngoc",
+                        VoiceId = "tuan_ngoc",
+                        Name = "Tuấn Ngọc",
+                        Gender = "male",
+                        Language = "Tiếng Việt",
+                        Accent = "Tự nhiên, kể chuyện",
+                        Provider = "Kokoro TTS",
+                        SampleText = "Xin chào, tôi là Tuấn Ngọc.",
+                        IsActive = true,
+                        IsDefault = false,
+                        SortOrder = 6,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    }
+                );
+                context.SaveChanges();
             }
         }
     }

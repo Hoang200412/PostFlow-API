@@ -17,6 +17,7 @@ public class MotionVideoBackgroundJobs
     private readonly IStorageService _storage;
     private readonly MotionVideoJobManager _jobs;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ITtsService _ttsService;
     private readonly ILogger<MotionVideoBackgroundJobs> _logger;
     private readonly StockVideoSettings _settings;
 
@@ -25,6 +26,7 @@ public class MotionVideoBackgroundJobs
         IStorageService storage,
         MotionVideoJobManager jobs,
         IHttpClientFactory httpClientFactory,
+        ITtsService ttsService,
         IOptions<StockVideoSettings> settings,
         ILogger<MotionVideoBackgroundJobs> logger)
     {
@@ -32,6 +34,7 @@ public class MotionVideoBackgroundJobs
         _storage = storage;
         _jobs = jobs;
         _httpClientFactory = httpClientFactory;
+        _ttsService = ttsService;
         _settings = settings.Value;
         _logger = logger;
     }
@@ -76,7 +79,7 @@ public class MotionVideoBackgroundJobs
                 var narration = string.IsNullOrWhiteSpace(scene.Narration)
                     ? request.Topic
                     : scene.Narration;
-                await GenerateTtsAsync(narration, request.Voice, request.Rate, request.Pitch, audioPath, sceneDir);
+                await _ttsService.SynthesizeToFileAsync(narration, request.Voice, request.Rate, request.Pitch, audioPath);
                 if (!string.Equals(request.SubtitleMode, "none", StringComparison.OrdinalIgnoreCase))
                     await File.WriteAllTextAsync(subtitlePath, BuildSubtitle(narration), new UTF8Encoding(false));
                 var videoFilter = BuildVideoFilter(request.SubtitleMode, subtitlePath, scene.MotionPreset);

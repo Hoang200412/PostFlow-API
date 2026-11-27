@@ -18,11 +18,13 @@ namespace PostFlow.Services
     {
         private readonly AppDbContext _context;
         private readonly IStorageService _storageService;
+        private readonly ITtsService _ttsService;
 
-        public ContentDnaService(AppDbContext context, IStorageService storageService)
+        public ContentDnaService(AppDbContext context, IStorageService storageService, ITtsService ttsService)
         {
             _context = context;
             _storageService = storageService;
+            _ttsService = ttsService;
         }
 
         public async Task<IEnumerable<ContentDnaDto>> GetListAsync(string userId)
@@ -42,8 +44,7 @@ namespace PostFlow.Services
                 throw new BadRequestException("Brand name cannot be empty.");
             }
 
-            var supportedVoices = new[] { "vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural", "en-US-JennyNeural", "en-US-GuyNeural" };
-            if (!supportedVoices.Contains(dto.VoiceProfile))
+            if (!await _ttsService.IsSupportedVoiceAsync(dto.VoiceProfile))
             {
                 throw new BadRequestException("Giọng đọc không được hỗ trợ.");
             }
@@ -76,8 +77,7 @@ namespace PostFlow.Services
                 throw new BadRequestException("Brand name cannot be empty.");
             }
 
-            var supportedVoices = new[] { "vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural", "en-US-JennyNeural", "en-US-GuyNeural" };
-            if (!supportedVoices.Contains(dto.VoiceProfile))
+            if (!await _ttsService.IsSupportedVoiceAsync(dto.VoiceProfile))
             {
                 throw new BadRequestException("Giọng đọc không được hỗ trợ.");
             }

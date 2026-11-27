@@ -20,15 +20,18 @@ namespace PostFlow.Services
         private readonly AppDbContext _context;
         private readonly IPasswordHasher<User> _passwordHasher;
         private readonly IBackgroundJobClient _backgroundJobClient;
+        private readonly IVoiceSampleService _voiceSampleService;
 
         public AdminService(
             AppDbContext context,
             IPasswordHasher<User> passwordHasher,
-            IBackgroundJobClient backgroundJobClient)
+            IBackgroundJobClient backgroundJobClient,
+            IVoiceSampleService voiceSampleService)
         {
             _context = context;
             _passwordHasher = passwordHasher;
             _backgroundJobClient = backgroundJobClient;
+            _voiceSampleService = voiceSampleService;
         }
 
         public async Task<IEnumerable<object>> GetUsersAsync()
@@ -284,6 +287,134 @@ namespace PostFlow.Services
             _context.UploadJobs.Remove(job);
             await _context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<IEnumerable<TtsVoice>> GetVoicesAsync()
+        {
+            return await _context.TtsVoices
+                .AsNoTracking()
+                .OrderBy(v => v.SortOrder)
+                .ThenBy(v => v.Name)
+                .ToListAsync();
+        }
+
+        public async Task<TtsVoice> CreateVoiceAsync(UpsertTtsVoiceRequest request)
+        {
+            var voiceId = request.VoiceId.Trim();
+            if (await _context.TtsVoices.AnyAsync(v => v.VoiceId == voiceId))
+            {
+                throw new BadRequestException($"Mã giọng đọc '{voiceId}' đã tồn tại.");
+            }
+
+            if (request.IsDefault)
+            {
+                await ClearDefaultVoiceAsync();
+            }
+
+            var name = request.Name.Trim();
+            var now = DateTime.UtcNow;
+            var voice = new TtsVoice
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                VoiceId = voiceId,
+                Name = name,
+                Gender = string.IsNullOrWhiteSpace(request.Gender) ? "female" : request.Gender.Trim().ToLowerInvariant(),
+                Language = string.IsNullOrWhiteSpace(request.Language) ? "Tiếng Việt" : request.Language.Trim(),
+                Accent = string.IsNullOrWhiteSpace(request.Accent) ? "Tiếng Việt chuẩn" : request.Accent.Trim(),
+                Provider = string.IsNullOrWhiteSpace(request.Provider) ? "Kokoro TTS" : request.Provider.Trim(),
+                SampleText = string.IsNullOrWhiteSpace(request.SampleText) ? $"Xin chào, tôi là {name}." : request.SampleText.Trim(),
+                IsActive = request.IsActive,
+                IsDefault = request.IsDefault,
+                SortOrder = request.SortOrder,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            _context.TtsVoices.Add(voice);
+            await _context.SaveChangesAsync();
+
+            try
+            {
+                await _voiceSampleService.GenerateAndSaveSampleAsync(voice);
+            }
+            catch
+            {
+                // Nếu PostFlow-TTS tạm thời chưa sẵn sàng, vẫn lưu voice và cho phép tạo sample sau
+            }
+
+            return voice;
+        }
+
+        public async Task<TtsVoice> UpdateVoiceAsync(string id, UpsertTtsVoiceRequest request)
+        {
+            var voice = await _context.TtsVoices.FindAsync(id)
+                ?? throw new NotFoundException($"Không tìm thấy giọng đọc '{id}'.");
+
+            var newVoiceId = request.VoiceId.Trim();
+            if (!string.Equals(voice.VoiceId, newVoiceId, StringComparison.Ordinal) &&
+                await _context.TtsVoices.AnyAsync(v => v.VoiceId == newVoiceId && v.Id != id))
+            {
+                throw new BadRequestException($"Mã giọng đọc '{newVoiceId}' đã tồn tại.");
+            }
+
+            if (request.IsDefault && !voice.IsDefault)
+            {
+                await ClearDefaultVoiceAsync();
+            }
+
+            var name = request.Name.Trim();
+            voice.VoiceId = newVoiceId;
+            voice.Name = name;
+            voice.Gender = string.IsNullOrWhiteSpace(request.Gender) ? voice.Gender : request.Gender.Trim().ToLowerInvariant();
+            voice.Language = string.IsNullOrWhiteSpace(request.Language) ? voice.Language : request.Language.Trim();
+            voice.Accent = string.IsNullOrWhiteSpace(request.Accent) ? voice.Accent : request.Accent.Trim();
+            voice.Provider = string.IsNullOrWhiteSpace(request.Provider) ? voice.Provider : request.Provider.Trim();
+            voice.SampleText = string.IsNullOrWhiteSpace(request.SampleText) ? $"Xin chào, tôi là {name}." : request.SampleText.Trim();
+            voice.IsActive = request.IsActive;
+            voice.IsDefault = request.IsDefault;
+            voice.SortOrder = request.SortOrder;
+            voice.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+            return voice;
+        }
+
+        public async Task<bool> DeleteVoiceAsync(string id)
+        {
+            var voice = await _context.TtsVoices.FindAsync(id)
+                ?? throw new NotFoundException($"Không tìm thấy giọng đọc '{id}'.");
+
+            if (voice.IsDefault)
+            {
+                throw new BadRequestException("Không thể xóa giọng đọc đang được đặt làm mặc định.");
+            }
+
+            _context.TtsVoices.Remove(voice);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<TtsVoice> GenerateVoiceSampleAsync(string id)
+        {
+            var voice = await _context.TtsVoices.FindAsync(id)
+                ?? throw new NotFoundException($"Không tìm thấy giọng đọc '{id}'.");
+
+            return await _voiceSampleService.GenerateAndSaveSampleAsync(voice);
+        }
+
+        public async Task<int> GenerateMissingVoiceSamplesAsync()
+        {
+            return await _voiceSampleService.SeedMissingSamplesAsync();
+        }
+
+        private async Task ClearDefaultVoiceAsync()
+        {
+            var currentDefaults = await _context.TtsVoices.Where(v => v.IsDefault).ToListAsync();
+            foreach (var v in currentDefaults)
+            {
+                v.IsDefault = false;
+                v.UpdatedAt = DateTime.UtcNow;
+            }
         }
     }
 }

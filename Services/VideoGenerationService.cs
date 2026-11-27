@@ -24,17 +24,20 @@ public class VideoGenerationService : IVideoGenerationService
     private readonly AppDbContext _context;
     private readonly IStorageService _storageService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ITtsService _ttsService;
     private readonly ILogger<VideoGenerationService> _logger;
 
     public VideoGenerationService(
         AppDbContext context,
         IStorageService storageService,
         IHttpClientFactory httpClientFactory,
+        ITtsService ttsService,
         ILogger<VideoGenerationService> logger)
     {
         _context = context;
         _storageService = storageService;
         _httpClientFactory = httpClientFactory;
+        _ttsService = ttsService;
         _logger = logger;
     }
 
@@ -79,8 +82,8 @@ public class VideoGenerationService : IVideoGenerationService
             throw new ArgumentException("Kịch bản không có phân cảnh nào để kết xuất video.");
         }
 
-        // 2. Xác định giọng đọc TTS (Mặc định: vi-VN-NamMinhNeural)
-        var selectedVoice = string.IsNullOrWhiteSpace(voice) ? "vi-VN-NamMinhNeural" : voice.Trim();
+        // 2. Xác định giọng đọc TTS (Mặc định: diem_trinh)
+        var selectedVoice = string.IsNullOrWhiteSpace(voice) ? "diem_trinh" : voice.Trim();
 
         // 3. Chuẩn bị thư mục làm việc tạm thời
         var workDir = Path.Combine(Path.GetTempPath(), "postflow_render", Guid.NewGuid().ToString("N"));
@@ -110,7 +113,7 @@ public class VideoGenerationService : IVideoGenerationService
                     ? (string.IsNullOrWhiteSpace(scene.VisualDescription) ? topic : scene.VisualDescription)
                     : scene.Narration;
 
-                await GenerateTtsAudioAsync(narrationText, selectedVoice, audioPath, workDir);
+                await _ttsService.SynthesizeToFileAsync(narrationText, selectedVoice, null, null, audioPath);
 
                 // b. Tải ảnh trực quan hoặc tạo ảnh AI
                 await DownloadOrGenerateImageAsync(scene, topic, imagePath, httpClient);
@@ -392,20 +395,15 @@ public class VideoGenerationService : IVideoGenerationService
         string userId,
         GenerateVoiceoverRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Text))
-        {
-            throw new BadRequestException("Nội dung văn bản lồng tiếng không được để trống.");
-        }
-
         var workDir = Path.Combine(Path.GetTempPath(), $"postflow_voiceover_{Guid.NewGuid():N}");
         Directory.CreateDirectory(workDir);
 
         try
         {
-            var voice = string.IsNullOrWhiteSpace(request.Voice) ? "vi-VN-NamMinhNeural" : request.Voice;
+            var voice = string.IsNullOrWhiteSpace(request.Voice) ? "diem_trinh" : request.Voice;
             var audioFile = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
 
-            await GenerateTtsAudioWithParamsAsync(request.Text, voice, request.Rate, request.Pitch, audioFile, workDir);
+            await _ttsService.SynthesizeToFileAsync(request.Text, voice, request.Rate, request.Pitch, audioFile);
 
             var duration = await GetMediaDurationSecondsAsync(audioFile);
 
@@ -494,9 +492,9 @@ public class VideoGenerationService : IVideoGenerationService
             }
             else if (!string.IsNullOrWhiteSpace(request.Text))
             {
-                var voice = string.IsNullOrWhiteSpace(request.Voice) ? "vi-VN-NamMinhNeural" : request.Voice;
+                var voice = string.IsNullOrWhiteSpace(request.Voice) ? "diem_trinh" : request.Voice;
                 audioPath = Path.Combine(workDir, $"{Guid.NewGuid():N}.mp3");
-                await GenerateTtsAudioWithParamsAsync(request.Text, voice, request.Rate, request.Pitch, audioPath, workDir);
+                await _ttsService.SynthesizeToFileAsync(request.Text, voice, request.Rate, request.Pitch, audioPath);
             }
 
             // 3. Tải file nhạc nền (Track 3: BGM) nếu có (hỗ trợ cả BgmObjectKey và BackgroundMusicObjectKey)

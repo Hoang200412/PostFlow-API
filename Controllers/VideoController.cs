@@ -29,6 +29,7 @@ namespace PostFlow.Controllers
         private readonly IVoiceoverJobManager _voiceoverJobManager;
         private readonly IDubVideoJobManager _dubVideoJobManager;
         private readonly IVideoGenerationService _videoGenService;
+        private readonly ITtsService _ttsService;
 
         public VideoController(
             IVideoAssetService videoAssetService, 
@@ -39,7 +40,8 @@ namespace PostFlow.Controllers
             IScriptJobManager scriptJobManager,
             IVoiceoverJobManager voiceoverJobManager,
             IDubVideoJobManager dubVideoJobManager,
-            IVideoGenerationService videoGenService)
+            IVideoGenerationService videoGenService,
+            ITtsService ttsService)
         {
             _videoAssetService = videoAssetService;
             _scriptGenService = scriptGenService;
@@ -50,6 +52,7 @@ namespace PostFlow.Controllers
             _voiceoverJobManager = voiceoverJobManager;
             _dubVideoJobManager = dubVideoJobManager;
             _videoGenService = videoGenService;
+            _ttsService = ttsService;
         }
 
         private string? GetCurrentUserId() =>
@@ -405,6 +408,16 @@ namespace PostFlow.Controllers
             return job == null
                 ? NotFound(new { message = "Không tìm thấy tác vụ lồng tiếng hoặc đã hết hạn." })
                 : Ok(job);
+        }
+
+        /// <summary>
+        /// API Lấy danh sách giọng đọc TTS đang bật (User UI chỉ giao tiếp với BE, không gọi trực tiếp sang PostFlow-TTS)
+        /// </summary>
+        [HttpGet("voices")]
+        public async Task<IActionResult> GetVoices()
+        {
+            var voices = await _ttsService.GetVoicesAsync(activeOnly: true);
+            return Ok(voices);
         }
     }
 }

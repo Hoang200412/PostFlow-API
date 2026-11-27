@@ -18,5 +18,11 @@ namespace PostFlow.Services.Interfaces
         Task<object> CleanupStuckJobsAsync(CleanupStuckJobsRequest? request);
         Task<bool> RetryJobAsync(string jobId);
         Task<bool> DeleteJobAsync(string jobId);
+        Task<IEnumerable<TtsVoice>> GetVoicesAsync();
+        Task<TtsVoice> CreateVoiceAsync(UpsertTtsVoiceRequest request);
+        Task<TtsVoice> UpdateVoiceAsync(string id, UpsertTtsVoiceRequest request);
+        Task<bool> DeleteVoiceAsync(string id);
+        Task<TtsVoice> GenerateVoiceSampleAsync(string id);
+        Task<int> GenerateMissingVoiceSamplesAsync();
     }
 }

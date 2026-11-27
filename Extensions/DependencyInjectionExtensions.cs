@@ -29,6 +29,20 @@ public static class DependencyInjectionExtensions
         services.Configure<StockVideoSettings>(configuration.GetSection("StockVideo"));
         services.Configure<ExplainerVideoSettings>(configuration.GetSection(ExplainerVideoSettings.SectionName));
         services.Configure<TrendCollectionSettings>(configuration.GetSection(TrendCollectionSettings.SectionName));
+        services.Configure<PostFlowTtsSettings>(configuration.GetSection(PostFlowTtsSettings.SectionName));
+
+        services.AddHttpClient<ITtsService, PostFlowTtsService>((sp, client) =>
+        {
+            var ttsSettings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PostFlowTtsSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(ttsSettings.BaseUrl) &&
+                Uri.TryCreate(ttsSettings.BaseUrl.Trim(), UriKind.Absolute, out var baseUri))
+            {
+                client.BaseAddress = baseUri;
+            }
+            client.Timeout = TimeSpan.FromSeconds(Math.Max(10, ttsSettings.TimeoutSeconds));
+        });
+        services.AddScoped<IVoiceSampleService, VoiceSampleService>();
+        services.AddHostedService<VoiceSampleSeedHostedService>();
 
         // Register Platform-specific publishers
         services.AddTransient<ISocialPublisher, YouTubePublisher>();

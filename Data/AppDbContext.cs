@@ -30,6 +30,7 @@ namespace PostFlow.Data
         public DbSet<TrendCollectionRun> TrendCollectionRuns { get; set; } = null!;
         public DbSet<AdminAuditLog> AdminAuditLogs { get; set; } = null!;
         public DbSet<UserDailyAiUsage> UserDailyAiUsages { get; set; } = null!;
+        public DbSet<TtsVoice> TtsVoices { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -305,6 +306,14 @@ namespace PostFlow.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.HasIndex(e => e.StartedAt);
+            });
+
+            // 13. Cấu hình bảng TtsVoices (Giọng đọc TTS)
+            modelBuilder.Entity<TtsVoice>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.VoiceId).IsUnique();
+                entity.HasIndex(e => new { e.IsActive, e.SortOrder });
             });
         }
 
